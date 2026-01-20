@@ -1,9 +1,9 @@
 # Project Build - Activity Log
 
 ## Current Status
-**Last Updated:** 2026-01-20 17:15
-**Tasks Completed:** 14/22
-**Current Task:** Implement initial database setup flow
+**Last Updated:** 2026-01-20 17:00
+**Tasks Completed:** 16/22
+**Current Task:** Implement Claude memory marker extraction
 
 ---
 
@@ -644,5 +644,53 @@ After completing each task, add an entry below in this format:
 
 **Verification:**
 - verification/task-14-build-fork-command-generator.txt
+
+---
+
+### 2026-01-20 17:00
+**Completed:**
+- Task 15: Implement initial database setup flow
+
+**Changes Made:**
+- Verified src/smart_fork/initial_setup.py with InitialSetup class (496 lines)
+- Verified SetupProgress dataclass for progress tracking
+- Verified SetupState dataclass for resumable setup state
+- Verified is_first_run() method for detecting first run (no ~/.smart-fork/ directory)
+- Verified _find_session_files() method for scanning ~/.claude/ recursively
+- Verified _notify_progress() method for progress display with ETA
+- Verified _estimate_remaining_time() method for time estimation
+- Verified interrupt() method for graceful interruption
+- Verified _save_state() and _load_state() methods for resume support
+- Verified run_setup() method orchestrating the full setup flow
+- Verified tests/test_initial_setup.py with comprehensive test suite (11 test classes, 40+ test methods)
+- Verified manual_test_initial_setup.py for manual integration testing
+- Created verification/task-15-implement-initial-database-setup-flow.txt
+
+**Status:**
+- ✓ InitialSetup class fully implemented
+- ✓ SetupProgress dataclass with all progress fields
+- ✓ SetupState dataclass with serialization support (to_dict/from_dict)
+- ✓ First-run detection implemented (is_first_run)
+- ✓ Session file scanning with recursive search (finds all .jsonl files >100 bytes)
+- ✓ Progress display with current file, processed/total counts, elapsed time, ETA
+- ✓ Estimated time remaining calculation based on average processing time
+- ✓ Graceful interruption support with state saving
+- ✓ Resume capability from saved state
+- ✓ Session registry creation on completion
+- ✓ Service initialization (EmbeddingService, VectorDBService, SessionRegistry)
+- ✓ Session file processing (parse, chunk, embed, store)
+- ✓ Project extraction from file paths
+- ✓ Error handling with detailed error reporting
+- ✓ Comprehensive test suite with 11 test classes covering all functionality
+- ✓ All verification checks passed (100% success rate)
+
+**Next:**
+- Task 16: Implement Claude memory marker extraction
+
+**Blockers:**
+- None (implementation complete and verified)
+
+**Verification:**
+- verification/task-15-implement-initial-database-setup-flow.txt
 
 ---

@@ -206,7 +206,7 @@ An MCP server for Claude Code that enables semantic search of past session trans
       "Create session registry on completion",
       "Test full initial setup flow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "feature",
