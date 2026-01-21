@@ -29,6 +29,7 @@ from .chunking_service import ChunkingService
 from .embedding_service import EmbeddingService
 from .vector_db_service import VectorDBService
 from .session_registry import SessionRegistry, SessionMetadata
+from .session_summary_service import SessionSummaryService
 
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,8 @@ class BackgroundIndexer:
         session_parser: SessionParser,
         debounce_seconds: float = 5.0,
         checkpoint_interval: int = 15,
-        max_workers: int = 2
+        max_workers: int = 2,
+        summary_service: Optional[SessionSummaryService] = None
     ):
         """
         Initialize the background indexer.
@@ -109,6 +111,7 @@ class BackgroundIndexer:
             debounce_seconds: Delay after last modification before indexing
             checkpoint_interval: Number of messages between checkpoints
             max_workers: Maximum number of worker threads
+            summary_service: Optional session summary service
         """
         self.claude_dir = Path(claude_dir)
         self.vector_db = vector_db
@@ -119,6 +122,7 @@ class BackgroundIndexer:
         self.debounce_seconds = debounce_seconds
         self.checkpoint_interval = checkpoint_interval
         self.max_workers = max_workers
+        self.summary_service = summary_service or SessionSummaryService()
 
         # State management
         self._pending_tasks: Dict[str, IndexingTask] = {}
@@ -373,6 +377,18 @@ class BackgroundIndexer:
                 chunk_ids=chunk_ids
             )
 
+            # Generate session summary
+            summary_text = None
+            try:
+                summary = self.summary_service.generate_summary(
+                    session_data.messages,
+                    session_id
+                )
+                summary_text = summary.summary
+                logger.debug(f"Generated summary for {session_id}: {len(summary_text)} chars")
+            except Exception as e:
+                logger.warning(f"Failed to generate summary for {session_id}: {e}")
+
             # Update session registry
             project = task.file_path.parent.name if task.file_path.parent.name != '.claude' else 'default'
 
@@ -387,7 +403,8 @@ class BackgroundIndexer:
                 created_at=created_at,
                 message_count=len(session_data.messages),
                 chunk_count=len(chunks),
-                tags=[]
+                tags=[],
+                summary=summary_text
             )
             self.session_registry.add_session(session_id, session_metadata)
 

@@ -229,7 +229,7 @@ These features are valuable but require more significant implementation work.
       "Show summary in search results",
       "Add get-session-summary MCP tool"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ux",

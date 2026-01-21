@@ -25,6 +25,8 @@ from .fork_history_service import ForkHistoryService
 from .preference_service import PreferenceService
 from .session_tag_service import SessionTagService
 from .duplicate_detection_service import DuplicateDetectionService
+from .session_clustering_service import SessionClusteringService
+from .session_summary_service import SessionSummaryService
 
 # Configure logging
 logging.basicConfig(
@@ -537,6 +539,9 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
         # Get Claude directory to monitor
         claude_dir = Path.home() / ".claude"
 
+        # Initialize summary service
+        summary_service = SessionSummaryService()
+
         # Create background indexer
         background_indexer = BackgroundIndexer(
             claude_dir=claude_dir,
@@ -546,7 +551,8 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
             chunking_service=chunking_service,
             session_parser=session_parser,
             debounce_seconds=5.0,
-            checkpoint_interval=15
+            checkpoint_interval=15,
+            summary_service=summary_service
         )
 
         logger.info("Services initialized successfully")
@@ -1021,6 +1027,291 @@ Use get-session-preview to compare their content.
     return similar_sessions_handler
 
 
+def create_cluster_sessions_handler(
+    clustering_service: Optional[SessionClusteringService]
+):
+    """
+    Create the cluster-sessions handler.
+
+    Args:
+        clustering_service: SessionClusteringService instance for clustering sessions
+    """
+    def cluster_sessions_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for cluster-sessions tool."""
+        num_clusters = arguments.get("num_clusters")
+
+        if clustering_service is None:
+            return "Error: Session clustering service is not initialized."
+
+        try:
+            # Run clustering
+            result = clustering_service.cluster_sessions(num_clusters=num_clusters)
+
+            if result.num_clusters == 0:
+                return """Session Clustering Complete
+
+No sessions were eligible for clustering.
+
+This happens when:
+- No sessions have enough chunks (minimum 3 required)
+- The database is empty or very sparse
+- Sessions are too short to generate meaningful embeddings
+
+💡 Tip: Index more sessions to enable clustering."""
+
+            # Format output
+            output = f"""Session Clustering Complete
+
+Clustered {result.total_sessions} sessions into {result.num_clusters} topic groups
+"""
+
+            if result.overall_silhouette_score is not None:
+                quality_desc = "excellent" if result.overall_silhouette_score > 0.5 else "good" if result.overall_silhouette_score > 0.25 else "fair"
+                output += f"Clustering Quality: {result.overall_silhouette_score:.3f} ({quality_desc})\n"
+
+            output += "\n"
+
+            # Sort clusters by size (largest first)
+            sorted_clusters = sorted(result.clusters, key=lambda c: c.size, reverse=True)
+
+            # Show cluster summaries
+            for cluster in sorted_clusters[:10]:  # Show top 10
+                output += f"\nCluster {cluster.cluster_id}: {cluster.label}\n"
+                output += f"  Sessions: {cluster.size}\n"
+                if cluster.silhouette_score:
+                    output += f"  Quality: {cluster.silhouette_score:.3f}\n"
+
+            if len(result.clusters) > 10:
+                output += f"\n... and {len(result.clusters) - 10} more clusters\n"
+
+            output += """
+---
+Use get-session-clusters to browse clusters and their sessions.
+Use get-cluster-sessions <cluster_id> to see sessions in a specific cluster.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error clustering sessions: {e}", exc_info=True)
+            return f"Error: Failed to cluster sessions: {str(e)}"
+
+    return cluster_sessions_handler
+
+
+def create_get_clusters_handler(
+    clustering_service: Optional[SessionClusteringService]
+):
+    """
+    Create the get-session-clusters handler.
+
+    Args:
+        clustering_service: SessionClusteringService instance for retrieving clusters
+    """
+    def get_clusters_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for get-session-clusters tool."""
+        if clustering_service is None:
+            return "Error: Session clustering service is not initialized."
+
+        try:
+            result = clustering_service.get_all_clusters()
+
+            if result is None:
+                return """No Clustering Available
+
+Clusters have not been computed yet.
+
+Run cluster-sessions to generate topic-based clusters from your sessions.
+
+Example:
+  cluster-sessions num_clusters=10
+"""
+
+            # Format output
+            output = f"""Session Clusters
+
+Total: {result.num_clusters} clusters, {result.total_sessions} sessions
+"""
+
+            if result.overall_silhouette_score:
+                output += f"Overall Quality: {result.overall_silhouette_score:.3f}\n"
+
+            output += "\n"
+
+            # Sort clusters by size
+            sorted_clusters = sorted(result.clusters, key=lambda c: c.size, reverse=True)
+
+            for cluster in sorted_clusters:
+                output += f"\nCluster {cluster.cluster_id}: {cluster.label}\n"
+                output += f"  Sessions: {cluster.size}\n"
+
+                # Show first few session IDs
+                preview_count = min(3, len(cluster.session_ids))
+                for sid in cluster.session_ids[:preview_count]:
+                    output += f"    - {sid}\n"
+
+                if len(cluster.session_ids) > preview_count:
+                    output += f"    ... and {len(cluster.session_ids) - preview_count} more\n"
+
+            output += """
+---
+Use get-cluster-sessions <cluster_id> to see all sessions in a cluster.
+Use fork-detect to search for sessions by topic.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error getting clusters: {e}", exc_info=True)
+            return f"Error: Failed to get clusters: {str(e)}"
+
+    return get_clusters_handler
+
+
+def create_get_cluster_sessions_handler(
+    clustering_service: Optional[SessionClusteringService]
+):
+    """
+    Create the get-cluster-sessions handler.
+
+    Args:
+        clustering_service: SessionClusteringService instance for retrieving cluster sessions
+    """
+    def get_cluster_sessions_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for get-cluster-sessions tool."""
+        cluster_id = arguments.get("cluster_id")
+
+        if cluster_id is None:
+            return "Error: Please provide a cluster_id."
+
+        if clustering_service is None:
+            return "Error: Session clustering service is not initialized."
+
+        try:
+            cluster = clustering_service.get_cluster_by_id(cluster_id)
+
+            if cluster is None:
+                return f"""Cluster Not Found
+
+No cluster with ID {cluster_id} exists.
+
+Use get-session-clusters to see available clusters.
+"""
+
+            # Format output
+            output = f"""Cluster {cluster.cluster_id}: {cluster.label}
+
+Sessions in this cluster ({cluster.size}):
+
+"""
+
+            for i, session_id in enumerate(cluster.session_ids, 1):
+                output += f"{i}. {session_id}\n"
+
+            output += """
+---
+Use get-session-preview <session_id> to view session content.
+Use fork-detect to search for similar sessions.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error getting cluster sessions: {e}", exc_info=True)
+            return f"Error: Failed to get cluster sessions: {str(e)}"
+
+    return get_cluster_sessions_handler
+
+
+def create_session_summary_handler(
+    session_registry: Optional[SessionRegistry]
+):
+    """
+    Create the get-session-summary handler.
+
+    Args:
+        session_registry: SessionRegistry instance for accessing session summaries
+    """
+    def session_summary_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for get-session-summary tool."""
+        session_id = arguments.get("session_id", "")
+
+        if not session_id:
+            return "Error: Please provide a session_id."
+
+        if session_registry is None:
+            return "Error: Session registry is not initialized."
+
+        try:
+            # Get session metadata
+            session = session_registry.get_session(session_id)
+
+            if session is None:
+                return f"""Session Not Found
+
+No session with ID '{session_id}' exists in the database.
+
+Use fork-detect to search for sessions, or check that the session ID is correct.
+"""
+
+            # Check if summary exists
+            if not session.summary:
+                return f"""Session Summary: {session_id}
+
+No summary available for this session.
+
+This can happen if:
+- The session was indexed before summarization was enabled
+- The session is very short (< 20 characters of content)
+- Summary generation failed during indexing
+
+Session Info:
+- Messages: {session.message_count}
+- Chunks: {session.chunk_count}
+- Project: {session.project or 'Unknown'}
+
+Use get-session-preview to view the full session content instead.
+"""
+
+            # Format the output
+            output = f"""Session Summary: {session_id}
+
+Summary:
+{session.summary}
+
+Session Info:
+- Messages: {session.message_count}
+- Chunks: {session.chunk_count}
+- Project: {session.project or 'Unknown'}
+"""
+
+            if session.created_at:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(session.created_at.replace('Z', '+00:00'))
+                    date_str = dt.strftime("%Y-%m-%d %H:%M")
+                    output += f"- Created: {date_str}\n"
+                except:
+                    pass
+
+            if session.tags:
+                tags_str = ", ".join(session.tags)
+                output += f"- Tags: {tags_str}\n"
+
+            output += """
+---
+Use get-session-preview for full content, or fork-detect to search for related sessions.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error getting session summary: {e}", exc_info=True)
+            return f"Error: Failed to get session summary: {str(e)}"
+
+    return session_summary_handler
+
+
 def create_server(
     search_service: Optional[SearchService] = None,
     background_indexer: Optional[BackgroundIndexer] = None,
@@ -1029,7 +1320,8 @@ def create_server(
     fork_history_service: Optional[ForkHistoryService] = None,
     preference_service: Optional[PreferenceService] = None,
     tag_service: Optional[SessionTagService] = None,
-    duplicate_service: Optional[DuplicateDetectionService] = None
+    duplicate_service: Optional[DuplicateDetectionService] = None,
+    clustering_service: Optional[SessionClusteringService] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -1043,6 +1335,7 @@ def create_server(
         preference_service: Optional PreferenceService for learning from selections
         tag_service: Optional SessionTagService for managing session tags
         duplicate_service: Optional DuplicateDetectionService for finding similar sessions
+        clustering_service: Optional SessionClusteringService for automatic topic clustering
     """
     server = MCPServer(
         search_service=search_service,
@@ -1250,6 +1543,23 @@ def create_server(
         handler=create_similar_sessions_handler(duplicate_service)
     )
 
+    # Register get-session-summary tool
+    server.register_tool(
+        name="get-session-summary",
+        description="Get a quick summary of a session's content without reading the full session",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID to get summary for"
+                }
+            },
+            "required": ["session_id"]
+        },
+        handler=create_session_summary_handler(session_registry)
+    )
+
     return server
 
 
@@ -1314,6 +1624,17 @@ def main() -> None:
             )
             logger.info("Duplicate detection service initialized")
 
+    # Initialize session clustering service
+    clustering_service = None
+    if search_service is not None:
+        vector_db_service = getattr(search_service, 'vector_db_service', None)
+        if vector_db_service is not None and session_registry is not None:
+            clustering_service = SessionClusteringService(
+                vector_db_service=vector_db_service,
+                session_registry=session_registry
+            )
+            logger.info("Session clustering service initialized")
+
     # Create and run server
     server = create_server(
         search_service=search_service,
@@ -1323,7 +1644,8 @@ def main() -> None:
         fork_history_service=fork_history_service,
         preference_service=preference_service,
         tag_service=tag_service,
-        duplicate_service=duplicate_service
+        duplicate_service=duplicate_service,
+        clustering_service=clustering_service
     )
     server.run()
 

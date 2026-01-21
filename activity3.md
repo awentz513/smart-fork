@@ -71,13 +71,24 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 
 ---
 
-## Remaining (5/14)
+**Session Summarization** ✅ 2026-01-21
+- SessionSummaryService with TF-IDF extractive summarization
+- Automatic summary generation during indexing (BackgroundIndexer)
+- Summary field added to SessionMetadata (Optional[str])
+- MCP tool: get-session-summary (session_id)
+- Features: sentence filtering, code detection, topic extraction, stop word removal
+- Configurable: max_sentences (default: 3), min/max sentence length
+- Tests: 20/20 unit tests passing, 9 integration tests created
+- Backward compatible (existing sessions: summary=None)
+
+---
+
+## Remaining (4/14)
 
 ### P2 (0 remaining)
 
-### P3 (5 remaining)
+### P3 (4 remaining)
 - Automatic topic clustering
 - VS Code extension integration
-- Session summarization
 - Session diff tool
 - Session archiving

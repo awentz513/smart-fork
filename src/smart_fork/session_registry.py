@@ -24,6 +24,7 @@ class SessionMetadata:
     chunk_count: int = 0
     message_count: int = 0
     tags: List[str] = None
+    summary: Optional[str] = None
 
     def __post_init__(self):
         """Initialize default values."""
