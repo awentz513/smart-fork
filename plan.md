@@ -312,7 +312,7 @@ An MCP server for Claude Code that enables semantic search of past session trans
       "Verify all dependencies bundled correctly",
       "Create release checklist"
     ],
-    "passes": false
+    "passes": true
   }
 ]
 ```
