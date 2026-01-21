@@ -190,7 +190,7 @@ This plan addresses gaps identified between the PRD specification and current im
       "Verify response format matches MCP spec",
       "Add test for full search-select-fork workflow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "enhancement",
@@ -218,7 +218,7 @@ This plan addresses gaps identified between the PRD specification and current im
       "Add example MCP tool usage",
       "Test README instructions on fresh setup"
     ],
-    "passes": false
+    "passes": true
   }
 ]
 ```

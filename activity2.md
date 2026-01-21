@@ -19,10 +19,10 @@
 
 ## Current Status
 <!-- Updated after each task completion -->
-**Last Updated:** 2026-01-21 10:30
+**Last Updated:** 2026-01-21 11:30
 **Phase:** 2 (Gap Remediation)
-**Tasks Completed:** 8/11
-**Current Task:** Task 9 - Add integration tests for MCP tool flow
+**Tasks Completed:** 10/11
+**Current Task:** Task 10 - Add session preview capability
 
 ---
 
@@ -476,6 +476,111 @@ These issues were discovered and fixed before Phase 2 started:
 
 **Next:**
 - Task 9: Add integration tests for MCP tool flow
+
+**Blockers:**
+- None
+
+---
+
+### 2026-01-21 11:00
+**Task:** Add integration tests for MCP tool flow
+**Priority:** P2
+
+**Changes Made:**
+- Created comprehensive integration test suite: tests/test_mcp_integration.py
+- Implemented MockMCPClient for testing MCP client-server interactions
+- Added 19 integration tests covering 4 test classes:
+  - TestMCPClientIntegration: 6 tests for client initialization, tool invocation, and error handling
+  - TestSearchSelectForkWorkflow: 4 tests for search-select-fork workflow
+  - TestMCPResponseFormat: 6 tests for MCP protocol compliance
+  - TestErrorHandling: 3 tests for error handling scenarios
+
+**Verification:**
+- All 19 integration tests pass (19/19)
+- Test coverage includes:
+  - ✅ MCP client initialization flow (initialize, initialized notification, tools/list)
+  - ✅ fork-detect tool invocation with valid and invalid inputs
+  - ✅ Unknown tool and method error handling
+  - ✅ Full search-select-fork workflow with mock search service
+  - ✅ Empty search results handling
+  - ✅ Selection UI formatting with SessionSearchResult objects
+  - ✅ JSON-RPC 2.0 and MCP 2024-11-05 protocol compliance
+  - ✅ Response format validation (result/error fields, ID matching)
+  - ✅ Service not initialized error handling
+  - ✅ Search service exception handling
+  - ✅ Malformed request handling
+- Verification saved to: verification/phase2-task9-mcp-integration-tests.txt
+
+**Status:**
+- ✅ MockMCPClient fixture created for simulating MCP client behavior
+- ✅ All MCP tool invocation scenarios tested
+- ✅ Error handling validated for all error paths
+- ✅ Response format matches MCP specification
+- ✅ Full search-select-fork workflow tested end-to-end
+- ✅ Integration tests properly use SessionSearchResult, SessionScore, SessionMetadata data structures
+- Task marked as passes=true in plan2.md
+
+**Implementation Details:**
+- tests/test_mcp_integration.py:30-56: MockMCPClient class for test requests
+- tests/test_mcp_integration.py:61-183: TestMCPClientIntegration class (6 tests)
+- tests/test_mcp_integration.py:186-387: TestSearchSelectForkWorkflow class (4 tests)
+- tests/test_mcp_integration.py:390-464: TestMCPResponseFormat class (6 tests)
+- tests/test_mcp_integration.py:467-522: TestErrorHandling class (3 tests)
+- Properly mocks SearchService with EmbeddingService, VectorDBService, ScoringService, SessionRegistry
+- Uses correct data structures matching production code
+
+**Next:**
+- Task 11: Fix README MCP configuration accuracy
+
+**Blockers:**
+- None
+
+---
+
+### 2026-01-21 11:30
+**Task:** Fix README MCP configuration accuracy
+**Priority:** P1
+
+**Changes Made:**
+- Updated README.md to correct MCP tool invocation documentation
+- Removed misleading "/fork-detect" slash command references
+- Added clear explanation that fork-detect is an MCP tool invoked automatically by Claude
+- Rewrote "Using the fork-detect Tool" section with natural language interface explanation
+- Updated Quick Start section with accurate tool invocation examples
+- Revised all 5 usage scenarios to show realistic natural language conversation flow
+- Changed "How It Works" section to reflect Claude's automatic invocation
+- Added note distinguishing MCP tools from slash commands
+- Included examples of both automatic and explicit tool invocation
+
+**Verification:**
+- Confirmed tool name "fork-detect" matches server.py:428
+- Verified tool is registered via MCP protocol, not as slash command
+- All README sections now accurately reflect implementation
+- Created comprehensive verification document
+- Verification saved to: verification/phase2-task11-readme-mcp-accuracy.txt
+
+**Status:**
+- ✅ README accurately documents fork-detect as MCP tool (not slash command)
+- ✅ Quick Start section shows natural language interaction
+- ✅ Usage section explains automatic invocation by Claude Code
+- ✅ All 5 example scenarios updated with realistic dialogue
+- ✅ Removed confusing "/fork-detect" command notation
+- ✅ Added clear explanation of MCP protocol invocation
+- ✅ Preserved correct tool name throughout documentation
+- ✅ Distinguished MCP tools from built-in slash commands
+- Task marked as passes=true in plan2.md
+
+**Implementation Details:**
+- README.md sections updated: 7 major sections
+- Example scenarios rewritten: 5 complete scenarios
+- Lines modified: ~150 total across multiple sections
+- Key improvement: Users now understand they describe tasks in natural language
+  and Claude Code invokes the tool automatically
+- Secondary improvement: Documented optional explicit invocation method
+- Documentation now matches actual MCP tool implementation
+
+**Next:**
+- Task 10: Add session preview capability
 
 **Blockers:**
 - None

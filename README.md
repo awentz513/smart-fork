@@ -20,7 +20,7 @@ Smart Fork Detection solves the "context loss" problem in AI-assisted developmen
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
-  - [/fork-detect Command](#fork-detect-command)
+  - [Using the fork-detect Tool](#using-the-fork-detect-tool)
   - [Selecting a Session](#selecting-a-session)
   - [Forking a Session](#forking-a-session)
 - [Configuration](#configuration)
@@ -124,41 +124,53 @@ Restart Claude Code (or reload the VSCode window) to load the MCP server.
    "
    ```
 
-   **Note**: Large session files (>1MB) may take longer to process. Sessions with no parseable messages will be skipped.
+   **Note**:
+   - Large session files (>1MB) may take longer to process. Sessions with no parseable messages will be skipped.
+   - By default, sessions that take longer than 30 seconds to process will timeout and be skipped. See [Timeout Handling](#timeout-handling) for configuration options.
 
-3. **Invoke the Tool** - In any Claude Code session, type:
+3. **Use the Tool** - In any Claude Code session, simply describe what you want to do in natural language. Claude Code will automatically invoke the `fork-detect` tool when appropriate.
+
+   **Example:**
    ```
-   /fork-detect
+   You: I want to find my previous work on WebSocket real-time updates
+
+   Claude: [Automatically invokes fork-detect tool behind the scenes]
    ```
 
-4. **Describe Your Task** - Enter a natural language description:
-   ```
-   I want to add real-time dashboard updates with WebSocket support
-   ```
+4. **Select a Session** - Claude will present the top 5 most relevant past sessions. Choose one to fork from, or start fresh.
 
-5. **Select a Session** - Choose from the top 5 most relevant past sessions, or start fresh.
-
-6. **Fork and Continue** - Copy the generated command and paste it in a new terminal to continue from that session with full context.
+5. **Fork and Continue** - Copy the generated command and paste it in a new terminal to continue from that session with full context.
 
 ## Usage
 
-### /fork-detect Command
+### Using the fork-detect Tool
 
-The `/fork-detect` command is your main interface to Smart Fork. It searches your session history and helps you find the most relevant previous conversation.
+Smart Fork provides the `fork-detect` MCP tool that integrates seamlessly with Claude Code. When you describe a task or problem, Claude Code can automatically invoke this tool to search your session history and find the most relevant previous conversations.
 
-**Syntax:**
+**How It Works:**
+
+1. **Natural Language Interface** - Simply describe your task in the conversation with Claude
+2. **Automatic Invocation** - Claude Code invokes the `fork-detect` tool behind the scenes when appropriate
+3. **Semantic Search** - The tool searches your entire session history using AI-powered semantic matching
+4. **Contextual Results** - You receive a curated list of the most relevant past sessions
+
+**Example Queries:**
+
+You can ask Claude to help you with tasks like:
+- "I want to implement user authentication with JWT like I did before"
+- "Can you find my previous work on database connection pooling?"
+- "Show me sessions where I added dark mode to settings"
+- "Find conversations about refactoring API error handling"
+- "Help me find my React component optimization work"
+
+**Direct Invocation (Optional):**
+
+While Claude Code typically invokes the tool automatically, you can also explicitly ask:
 ```
-/fork-detect
+You: Use the fork-detect tool to search for "WebSocket real-time updates"
 ```
 
-When invoked, you'll be prompted to describe what you want to do in natural language.
-
-**Example queries:**
-- "implement user authentication with JWT"
-- "fix database connection pooling issues"
-- "add dark mode to the settings page"
-- "refactor API error handling"
-- "optimize React component rendering"
+**Note:** The `fork-detect` tool is an MCP tool, not a slash command. It's invoked through the Model Context Protocol, either automatically by Claude or when you explicitly request it.
 
 ### Selecting a Session
 
@@ -293,6 +305,35 @@ Smart Fork uses a configuration file at `~/.smart-fork/config.json`. The file is
 - **checkpoint_interval**: Index after this many new messages (prevents loss)
 - **enabled**: Enable/disable background indexing
 
+#### Timeout Handling
+
+```json
+"setup": {
+  "timeout_per_session": 30.0
+}
+```
+
+- **timeout_per_session**: Maximum time in seconds to process each session file (default: 30.0)
+
+Smart Fork will skip sessions that exceed this timeout and log a warning. Timed-out sessions can be retried later using the `retry_timeouts` flag.
+
+**Handling Large Session Files:**
+
+If you have very large session files (>5MB) that timeout during initial setup:
+
+```python
+from smart_fork.initial_setup import InitialSetup
+
+# Increase timeout for large files
+setup = InitialSetup(timeout_per_session=60.0)
+result = setup.run_setup()
+
+# Or retry previously timed-out sessions
+if result.get('timeouts'):
+    print(f"{len(result['timeouts'])} sessions timed out")
+    result = setup.run_setup(resume=True, retry_timeouts=True)
+```
+
 #### Server Settings
 
 ```json
@@ -384,7 +425,7 @@ Session files are parsed, chunked, embedded, and stored in the vector database a
 
 ### Semantic Search
 
-When you invoke `/fork-detect`, Smart Fork:
+When Claude invokes the `fork-detect` tool, Smart Fork:
 
 1. **Embeds Your Query**: Converts your natural language description to a 768-dimensional vector
 2. **Vector Search**: Finds the 200 most similar chunks using ChromaDB's k-NN search
@@ -581,20 +622,22 @@ This deletes the vector database, session registry, and configuration. Your orig
 **Context**: You previously built a real-time dashboard with WebSockets. Now you need to add live notifications to a different project.
 
 ```
-You: /fork-detect
-Smart Fork: What would you like to do?
-You: implement real-time notifications with WebSocket
+You: I need to implement real-time notifications with WebSocket.
+     Can you help me find my previous work on this?
 
-Results:
+Claude: [Invokes fork-detect tool automatically]
+
+Fork Detection Results:
 ⭐ [1] Session abc123 (94% match) - Recommended
    Date: 2026-01-10
    Project: my-dashboard
    Preview: "Set up WebSocket connection with automatic reconnection,
             heartbeat ping/pong, and exponential backoff..."
 
-You: (select option 1)
+[2] Session def456 (81% match)
+   ...
 
-Smart Fork: Fork command generated!
+To fork from the recommended session, run:
 Terminal command: claude --resume abc123 --fork-session
 
 You: (paste command in new terminal)
@@ -608,18 +651,22 @@ Claude: (continues with full context from the dashboard implementation)
 **Context**: You fixed a memory leak in your app 3 weeks ago. A similar issue appeared in a different component.
 
 ```
-You: /fork-detect
-Smart Fork: What would you like to do?
-You: fix memory leak in React components
+You: I'm seeing a memory leak in React components again.
+     Can you find my previous debugging session on this?
 
-Results:
+Claude: [Invokes fork-detect tool]
+
+Fork Detection Results:
 ⭐ [1] Session def456 (89% match) - Recommended
    Date: 2025-12-28
    Project: web-app
    Preview: "Identified memory leak caused by missing cleanup in useEffect.
             Added return function to cancel subscriptions and clear intervals..."
 
-You: (select option 1)
+To fork from this session, run:
+claude --resume def456 --fork-session
+
+You: (pastes command to continue)
 ```
 
 **Result**: Claude remembers the exact debugging approach, tools used, and solution pattern from the previous fix.
@@ -629,18 +676,22 @@ You: (select option 1)
 **Context**: You're in a long refactoring session that hit the 200k token limit.
 
 ```
-You: /fork-detect
-Smart Fork: What would you like to do?
-You: continue refactoring authentication module
+You: I need to continue refactoring the authentication module from my
+     previous session. Can you find where I left off?
 
-Results:
+Claude: [Invokes fork-detect tool]
+
+Fork Detection Results:
 ⭐ [1] Session ghi789 (98% match) - Recommended
    Date: Today, 2 hours ago
    Project: api-server
    Preview: "Refactoring auth module: completed user service, working on
             token validation. Next: implement refresh token rotation..."
 
-You: (select option 1)
+To continue from where you left off, run:
+claude --resume ghi789 --fork-session
+
+You: (continues seamlessly)
 ```
 
 **Result**: Seamlessly continue refactoring with all architectural decisions and progress context intact.
@@ -651,15 +702,17 @@ You: (select option 1)
 
 ```
 # First approach
-You: /fork-detect
-You: implement settings page with form validation
-You: (select session with React + Formik)
+You: Find my work on implementing settings page with form validation
+
+Claude: [Shows results, you fork to session with React + Formik]
 
 # Later, try another approach
-You: /fork-detect
-You: implement settings page with form validation
-You: (select same baseline session)
-You: Actually, let's use Vue 3 with Vuelidate instead
+You: Find that same settings page session again, I want to try
+     a different approach
+
+Claude: [Shows same results]
+
+You: Let's fork from that session but use Vue 3 with Vuelidate instead
 ```
 
 **Result**: Test multiple approaches from the same baseline without losing context or duplicating setup work.
@@ -669,16 +722,21 @@ You: Actually, let's use Vue 3 with Vuelidate instead
 **Context**: A new team member needs to understand your project's patterns.
 
 ```
-You: /fork-detect
-You: understand project structure and coding patterns
+You: Can you help me understand this project's structure and coding patterns?
+     Find any sessions where the architecture was discussed.
 
-Results:
+Claude: [Invokes fork-detect tool]
+
+Fork Detection Results:
 ⭐ [1] Session jkl012 (85% match) - Recommended
    Date: 2025-11-15
    Project: api-server
    Preview: "Explained project architecture: 3-tier design with controllers,
             services, and repositories. Error handling uses custom exception
             classes..."
+
+To review this architectural discussion, run:
+claude --resume jkl012 --fork-session
 ```
 
 **Result**: New developers can fork from architecture discussions to get context-aware guidance.
