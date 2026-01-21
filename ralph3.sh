@@ -16,7 +16,7 @@ else
 fi
 
 # Configuration
-TIMEOUT_SECONDS=300  # 5 minute timeout per claude call
+TIMEOUT_SECONDS=600  # 10 minute timeout per claude call (longer due to Smart Fork searches)
 MAX_RETRIES=3
 RETRY_DELAY=5
 LOG_FILE="ralph_log_3.txt"
