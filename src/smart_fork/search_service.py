@@ -16,6 +16,7 @@ from .vector_db_service import VectorDBService, ChunkSearchResult
 from .scoring_service import ScoringService, SessionScore
 from .session_registry import SessionRegistry, SessionMetadata
 from .cache_service import CacheService
+from .preference_service import PreferenceService
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,9 @@ class SearchService:
         top_n_sessions: int = 5,
         preview_length: int = 200,
         cache_service: Optional[CacheService] = None,
-        enable_cache: bool = True
+        enable_cache: bool = True,
+        preference_service: Optional[PreferenceService] = None,
+        enable_preferences: bool = True
     ):
         """
         Initialize the SearchService.
@@ -77,6 +80,8 @@ class SearchService:
             preview_length: Length of preview text in characters (default 200)
             cache_service: Optional CacheService for caching embeddings and results
             enable_cache: Whether to use caching (default True)
+            preference_service: Optional PreferenceService for learning from selections
+            enable_preferences: Whether to use preference learning (default True)
         """
         self.embedding_service = embedding_service
         self.vector_db_service = vector_db_service
@@ -97,8 +102,21 @@ class SearchService:
         if not enable_cache:
             logger.info("Caching disabled")
 
+        # Initialize preference service if enabled
+        self.enable_preferences = enable_preferences
+        if enable_preferences and preference_service is None:
+            self.preference_service = PreferenceService()
+            logger.info("Initialized default PreferenceService")
+        else:
+            self.preference_service = preference_service
+
+        if not enable_preferences:
+            logger.info("Preference learning disabled")
+
         logger.info(
-            f"Initialized SearchService (k={k_chunks}, top_n={top_n_sessions}, cache={'enabled' if enable_cache else 'disabled'})"
+            f"Initialized SearchService (k={k_chunks}, top_n={top_n_sessions}, "
+            f"cache={'enabled' if enable_cache else 'disabled'}, "
+            f"preferences={'enabled' if enable_preferences else 'disabled'})"
         )
 
     def search(
@@ -172,9 +190,9 @@ class SearchService:
 
         logger.info(f"Grouped into {len(session_chunks)} sessions")
 
-        # Step 4: Calculate composite scores for each session
+        # Step 4: Calculate composite scores for each session (with preference learning)
         logger.debug("Calculating composite scores...")
-        session_scores = self._calculate_session_scores(session_chunks)
+        session_scores = self._calculate_session_scores(session_chunks, query=query)
 
         # Step 5: Rank sessions and return top N
         logger.debug(f"Ranking sessions and selecting top {top_n}...")
@@ -234,18 +252,34 @@ class SearchService:
 
     def _calculate_session_scores(
         self,
-        session_chunks: Dict[str, List[ChunkSearchResult]]
+        session_chunks: Dict[str, List[ChunkSearchResult]],
+        query: Optional[str] = None
     ) -> List[SessionScore]:
         """
         Calculate composite scores for each session.
 
         Args:
             session_chunks: Dictionary mapping session_id to chunks
+            query: Optional query context for preference calculation
 
         Returns:
             List of SessionScore objects
         """
         scores = []
+
+        # Calculate preference boosts for all sessions if enabled
+        preference_boosts = {}
+        if self.enable_preferences and self.preference_service:
+            session_ids = list(session_chunks.keys())
+            preference_scores = self.preference_service.calculate_preference_boosts(
+                session_ids=session_ids,
+                query=query
+            )
+            preference_boosts = {
+                sid: pscore.preference_boost
+                for sid, pscore in preference_scores.items()
+            }
+            logger.debug(f"Calculated preference boosts for {len(preference_boosts)} sessions")
 
         for session_id, chunks in session_chunks.items():
             # Extract similarity scores
@@ -263,13 +297,17 @@ class SearchService:
                 if 'memory_types' in chunk.metadata and chunk.metadata['memory_types']:
                     memory_types.extend(chunk.metadata['memory_types'])
 
+            # Get preference boost for this session
+            preference_boost = preference_boosts.get(session_id, 0.0)
+
             # Calculate composite score
             score = self.scoring_service.calculate_session_score(
                 session_id=session_id,
                 chunk_similarities=chunk_similarities,
                 total_chunks_in_session=total_chunks,
                 session_last_modified=last_modified,
-                memory_types=memory_types if memory_types else None
+                memory_types=memory_types if memory_types else None,
+                preference_boost=preference_boost
             )
 
             scores.append(score)

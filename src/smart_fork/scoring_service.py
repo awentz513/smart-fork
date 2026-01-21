@@ -23,6 +23,7 @@ class SessionScore:
     recency_score: float
     chain_quality: float
     memory_boost: float
+    preference_boost: float
     num_chunks_matched: int
 
     def to_dict(self) -> Dict[str, Any]:
@@ -36,6 +37,7 @@ class SessionScore:
             'recency_score': self.recency_score,
             'chain_quality': self.chain_quality,
             'memory_boost': self.memory_boost,
+            'preference_boost': self.preference_boost,
             'num_chunks_matched': self.num_chunks_matched,
         }
 
@@ -50,11 +52,18 @@ class ScoringService:
                 + (chunk_ratio × 0.05)
                 + (recency × 0.25)
                 + (chain_quality × 0.10)
+                + memory_boost
+                + preference_boost
 
     With memory type boosts:
     - PATTERN: +5%
     - WORKING_SOLUTION: +8%
     - WAITING: +2%
+
+    With preference learning boost:
+    - Based on user fork history and selection patterns
+    - Up to +0.10 for frequently forked sessions
+    - Weighted by recency and position quality
     """
 
     # Scoring weights
@@ -89,6 +98,7 @@ class ScoringService:
         total_chunks_in_session: int,
         session_last_modified: Optional[str] = None,
         memory_types: Optional[List[str]] = None,
+        preference_boost: float = 0.0,
         current_time: Optional[datetime] = None
     ) -> SessionScore:
         """
@@ -100,6 +110,7 @@ class ScoringService:
             total_chunks_in_session: Total number of chunks in the session
             session_last_modified: ISO timestamp of session's last modification
             memory_types: List of memory types found in matched chunks
+            preference_boost: Preference learning boost (from PreferenceService)
             current_time: Current time for recency calculation (defaults to now)
 
         Returns:
@@ -116,6 +127,7 @@ class ScoringService:
                 recency_score=0.0,
                 chain_quality=self.chain_quality_placeholder,
                 memory_boost=0.0,
+                preference_boost=0.0,
                 num_chunks_matched=0
             )
 
@@ -137,7 +149,7 @@ class ScoringService:
         # Calculate memory boost
         memory_boost = self._calculate_memory_boost(memory_types)
 
-        # Calculate base score (before memory boost)
+        # Calculate base score (before boosts)
         base_score = (
             (best_similarity * self.WEIGHT_BEST_SIMILARITY) +
             (avg_similarity * self.WEIGHT_AVG_SIMILARITY) +
@@ -146,8 +158,8 @@ class ScoringService:
             (chain_quality * self.WEIGHT_CHAIN_QUALITY)
         )
 
-        # Apply memory boost (additive)
-        final_score = base_score + memory_boost
+        # Apply boosts (additive)
+        final_score = base_score + memory_boost + preference_boost
 
         # Ensure score stays in valid range [0.0, 1.0+boosts]
         final_score = max(0.0, final_score)
@@ -161,6 +173,7 @@ class ScoringService:
             recency_score=recency_score,
             chain_quality=chain_quality,
             memory_boost=memory_boost,
+            preference_boost=preference_boost,
             num_chunks_matched=len(chunk_similarities)
         )
 

@@ -22,6 +22,7 @@ from .fork_generator import ForkGenerator
 from .cache_service import CacheService
 from .config_manager import ConfigManager
 from .fork_history_service import ForkHistoryService
+from .preference_service import PreferenceService
 
 # Configure logging
 logging.basicConfig(
@@ -470,6 +471,8 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
         session_registry = SessionRegistry(registry_path=str(registry_path))
         chunking_service = ChunkingService()
         session_parser = SessionParser()
+        preference_service = PreferenceService()
+        logger.info("Preference service initialized")
 
         # Create search service
         search_service = SearchService(
@@ -481,7 +484,9 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
             top_n_sessions=config.search.top_n_sessions,
             preview_length=config.search.preview_length,
             cache_service=cache_service,
-            enable_cache=config.cache.enabled
+            enable_cache=config.cache.enabled,
+            preference_service=preference_service,
+            enable_preferences=True
         )
 
         # Get Claude directory to monitor
@@ -566,12 +571,16 @@ Use this information to decide if you want to fork from this session.
     return session_preview_handler
 
 
-def create_record_fork_handler(fork_history_service: Optional[ForkHistoryService]):
+def create_record_fork_handler(
+    fork_history_service: Optional[ForkHistoryService],
+    preference_service: Optional[PreferenceService]
+):
     """
-    Create the record-fork handler for tracking fork history.
+    Create the record-fork handler for tracking fork history and preferences.
 
     Args:
         fork_history_service: ForkHistoryService instance for tracking forks
+        preference_service: PreferenceService instance for learning preferences
     """
     def record_fork_handler(arguments: Dict[str, Any]) -> str:
         """Handler for record-fork tool."""
@@ -586,11 +595,21 @@ def create_record_fork_handler(fork_history_service: Optional[ForkHistoryService
             return "Error: Fork history service is not initialized."
 
         try:
+            # Record in fork history service
             fork_history_service.record_fork(
                 session_id=session_id,
                 query=query,
                 position=position
             )
+
+            # Also record in preference service for learning
+            if preference_service is not None:
+                preference_service.record_selection(
+                    session_id=session_id,
+                    query=query,
+                    position=position
+                )
+
             return f"Fork recorded successfully for session {session_id}"
 
         except Exception as e:
@@ -685,7 +704,8 @@ def create_server(
     background_indexer: Optional[BackgroundIndexer] = None,
     claude_dir: Optional[str] = None,
     session_registry: Optional[Any] = None,
-    fork_history_service: Optional[ForkHistoryService] = None
+    fork_history_service: Optional[ForkHistoryService] = None,
+    preference_service: Optional[PreferenceService] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -696,6 +716,7 @@ def create_server(
         claude_dir: Optional path to Claude directory (for ForkGenerator)
         session_registry: Optional SessionRegistry for database stats
         fork_history_service: Optional ForkHistoryService for tracking fork history
+        preference_service: Optional PreferenceService for learning from selections
     """
     server = MCPServer(
         search_service=search_service,
@@ -777,7 +798,7 @@ def create_server(
             },
             "required": ["session_id", "query"]
         },
-        handler=create_record_fork_handler(fork_history_service)
+        handler=create_record_fork_handler(fork_history_service, preference_service)
     )
 
     # Register get-fork-history tool
@@ -811,9 +832,12 @@ def main() -> None:
     # Get Claude directory path
     claude_dir = str(Path.home() / ".claude")
 
-    # Initialize fork history service
+    # Initialize fork history and preference services
     fork_history_service = ForkHistoryService()
     logger.info("Fork history service initialized")
+
+    preference_service = PreferenceService()
+    logger.info("Preference service initialized")
 
     # Start background indexer if initialized
     if background_indexer is not None:
@@ -847,7 +871,8 @@ def main() -> None:
         background_indexer=background_indexer,
         claude_dir=claude_dir,
         session_registry=session_registry,
-        fork_history_service=fork_history_service
+        fork_history_service=fork_history_service,
+        preference_service=preference_service
     )
     server.run()
 

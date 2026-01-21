@@ -414,6 +414,7 @@ class TestSessionScoreDataclass:
             recency_score=0.7,
             chain_quality=0.5,
             memory_boost=0.05,
+            preference_boost=0.02,
             num_chunks_matched=5
         )
 
@@ -426,6 +427,7 @@ class TestSessionScoreDataclass:
         assert result['recency_score'] == 0.7
         assert result['chain_quality'] == 0.5
         assert result['memory_boost'] == 0.05
+        assert result['preference_boost'] == 0.02
         assert result['num_chunks_matched'] == 5
 
 
@@ -436,9 +438,9 @@ class TestSessionRanking:
         """Test that sessions are sorted by final score."""
         service = ScoringService()
         scores = [
-            SessionScore("s1", 0.5, 0.6, 0.5, 0.3, 0.4, 0.5, 0.0, 3),
-            SessionScore("s2", 0.9, 0.95, 0.9, 0.7, 0.8, 0.5, 0.05, 8),
-            SessionScore("s3", 0.7, 0.8, 0.7, 0.5, 0.6, 0.5, 0.0, 5),
+            SessionScore("s1", 0.5, 0.6, 0.5, 0.3, 0.4, 0.5, 0.0, 0.0, 3),
+            SessionScore("s2", 0.9, 0.95, 0.9, 0.7, 0.8, 0.5, 0.05, 0.0, 8),
+            SessionScore("s3", 0.7, 0.8, 0.7, 0.5, 0.6, 0.5, 0.0, 0.0, 5),
         ]
 
         ranked = service.rank_sessions(scores, top_k=3)
@@ -451,7 +453,7 @@ class TestSessionRanking:
         """Test that only top K sessions are returned."""
         service = ScoringService()
         scores = [
-            SessionScore(f"s{i}", float(i) / 10, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1)
+            SessionScore(f"s{i}", float(i) / 10, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 1)
             for i in range(10)
         ]
 
@@ -462,8 +464,8 @@ class TestSessionRanking:
         """Test ranking when fewer sessions than top_k."""
         service = ScoringService()
         scores = [
-            SessionScore("s1", 0.8, 0.8, 0.8, 0.5, 0.7, 0.5, 0.0, 5),
-            SessionScore("s2", 0.6, 0.7, 0.6, 0.4, 0.5, 0.5, 0.0, 4),
+            SessionScore("s1", 0.8, 0.8, 0.8, 0.5, 0.7, 0.5, 0.0, 0.0, 5),
+            SessionScore("s2", 0.6, 0.7, 0.6, 0.4, 0.5, 0.5, 0.0, 0.0, 4),
         ]
 
         ranked = service.rank_sessions(scores, top_k=5)

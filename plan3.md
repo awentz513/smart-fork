@@ -122,7 +122,7 @@ These features add meaningful capabilities with moderate implementation complexi
       "Boost sessions user has forked before",
       "Add user_preference_weight to scoring pipeline"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ux",

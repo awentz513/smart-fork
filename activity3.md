@@ -332,3 +332,92 @@ Batch Processing:
 - Existing tests updated to disable cache
 - No breaking changes to API
 - Cache directory created automatically
+
+---
+
+### 2026-01-21: Learn from User Fork Selections (P2)
+
+**Task:** Implement preference learning to improve ranking based on what users actually choose.
+
+**Status:** ✅ Complete
+
+**Changes:**
+- Created PreferenceService module with selection tracking and boost calculation
+- Integrated preference boosts into ScoringService and SearchService
+- Updated server.py to record preferences alongside fork history
+- Added comprehensive test coverage (31 new tests)
+- Created verification documentation
+
+**Implementation Details:**
+
+1. **PreferenceService Module** (src/smart_fork/preference_service.py - 361 lines)
+   - PreferenceEntry dataclass: session_id, query, position, timestamp
+   - PreferenceScore dataclass: boost calculation results
+   - Thread-safe service with file-based persistence
+   - Storage: ~/.smart-fork/preferences.json
+   - LRU pruning (max 1000 entries)
+   - Batch operations for efficiency
+
+2. **Preference Boost Calculation**
+   - Base boost: 0.02 per fork (max 0.10 at 5 forks)
+   - Position bonus: 0.01 weighted by selection quality
+   - Recency weight: exp(-age_days / 90 days)
+   - Final: (fork_boost + position_bonus) * recency_weight
+
+3. **ScoringService Integration**
+   - Added preference_boost field to SessionScore
+   - Added preference_boost parameter to calculate_session_score()
+   - Updated formula: base_score + memory_boost + preference_boost
+   - Updated all existing tests (33/33 passing)
+
+4. **SearchService Integration**
+   - Added PreferenceService initialization
+   - Modified _calculate_session_scores() to calculate boosts
+   - Batch preference calculation for all candidate sessions
+   - Passes query context for query-aware boosting (future)
+
+5. **Server Integration**
+   - Initialize PreferenceService in main()
+   - Updated create_record_fork_handler() to record in both services
+   - Pass preference_service through create_server() chain
+   - Seamless integration with existing record-fork MCP tool
+
+**Test Coverage:**
+- tests/test_preference_service.py: 18/18 tests passing ✅
+  - Initialization, recording, boost calculation
+  - Position quality, recency decay
+  - Persistence, thread safety, error handling
+
+- tests/test_preference_integration.py: 13/13 tests passing ✅
+  - Scoring and search integration
+  - Complete workflow verification
+  - Ranking effects, serialization
+  - Backward compatibility
+
+- tests/test_scoring_service.py: 33/33 tests passing ✅
+  - All existing tests updated for new field
+  - No regressions introduced
+
+**Total:** 64/64 tests passing ✅
+
+**Verification:**
+- Created verification/phase3-preference-learning.txt documenting all components
+- All 5 steps from plan3.md completed:
+  ✅ Track which result users select (position 1, 2, 3, or custom)
+  ✅ Store selection patterns with query context
+  ✅ Add lightweight preference model
+  ✅ Boost sessions user has forked before
+  ✅ Add user_preference_weight to scoring pipeline
+
+**Performance Impact:**
+- Recording: O(1) with atomic file write
+- Boost calculation: O(n) for n sessions (batch operation)
+- Memory: ~1KB per preference entry
+- Storage: ~/.smart-fork/preferences.json (~1MB per 1000 entries)
+
+**Backward Compatibility:**
+✅ Fully backwards compatible
+- preference_boost defaults to 0.0 (no impact if not used)
+- enable_preferences defaults to True (can disable)
+- Existing code works without modification
+- All existing tests pass
