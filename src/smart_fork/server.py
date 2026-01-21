@@ -19,6 +19,8 @@ from .background_indexer import BackgroundIndexer
 from .session_parser import SessionParser
 from .chunking_service import ChunkingService
 from .fork_generator import ForkGenerator
+from .cache_service import CacheService
+from .config_manager import ConfigManager
 
 # Configure logging
 logging.basicConfig(
@@ -361,9 +363,27 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
 
         logger.info(f"Initializing services with storage: {storage_dir}")
 
+        # Load configuration
+        config_manager = ConfigManager()
+        config = config_manager.load()
+
+        # Initialize cache service
+        cache_service = None
+        if config.cache.enabled:
+            cache_service = CacheService(
+                embedding_cache_size=config.cache.embedding_cache_size,
+                embedding_ttl_seconds=config.cache.embedding_ttl_seconds,
+                result_cache_size=config.cache.result_cache_size,
+                result_ttl_seconds=config.cache.result_ttl_seconds
+            )
+            logger.info("Cache service initialized")
+
         # Initialize services
         embedding_service = EmbeddingService()
-        vector_db_service = VectorDBService(persist_directory=str(vector_db_path))
+        vector_db_service = VectorDBService(
+            persist_directory=str(vector_db_path),
+            cache_service=cache_service
+        )
         scoring_service = ScoringService()
         session_registry = SessionRegistry(registry_path=str(registry_path))
         chunking_service = ChunkingService()
@@ -375,9 +395,11 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
             vector_db_service=vector_db_service,
             scoring_service=scoring_service,
             session_registry=session_registry,
-            k_chunks=200,
-            top_n_sessions=5,
-            preview_length=200
+            k_chunks=config.search.k_chunks,
+            top_n_sessions=config.search.top_n_sessions,
+            preview_length=config.search.preview_length,
+            cache_service=cache_service,
+            enable_cache=config.cache.enabled
         )
 
         # Get Claude directory to monitor

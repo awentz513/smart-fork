@@ -7,10 +7,13 @@ session chunks with embeddings, supporting CRUD operations and similarity search
 
 import os
 import json
+import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import chromadb
 from chromadb.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,13 +35,14 @@ class VectorDBService:
     with their embeddings in a persistent ChromaDB collection.
     """
 
-    def __init__(self, persist_directory: Optional[str] = None):
+    def __init__(self, persist_directory: Optional[str] = None, cache_service: Optional[Any] = None):
         """
         Initialize the VectorDBService.
 
         Args:
             persist_directory: Directory for persistent storage.
                              Defaults to ~/.smart-fork/vector_db/
+            cache_service: Optional CacheService for invalidating caches on updates
         """
         if persist_directory is None:
             home = os.path.expanduser("~")
@@ -48,6 +52,7 @@ class VectorDBService:
         os.makedirs(persist_directory, exist_ok=True)
 
         self.persist_directory = persist_directory
+        self.cache_service = cache_service
 
         # Initialize ChromaDB client with persistent storage
         self.client = chromadb.PersistentClient(
@@ -139,6 +144,11 @@ class VectorDBService:
             documents=chunks,
             metadatas=processed_metadata
         )
+
+        # Invalidate result cache since database has changed
+        if self.cache_service:
+            self.cache_service.invalidate_results()
+            logger.debug("Invalidated result cache after adding chunks")
 
         return chunk_ids
 
@@ -246,6 +256,12 @@ class VectorDBService:
         if results["ids"]:
             chunk_ids = results["ids"]
             self.collection.delete(ids=chunk_ids)
+
+            # Invalidate result cache since database has changed
+            if self.cache_service:
+                self.cache_service.invalidate_results()
+                logger.debug("Invalidated result cache after deleting chunks")
+
             return len(chunk_ids)
 
         return 0

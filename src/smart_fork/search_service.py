@@ -15,6 +15,7 @@ from .embedding_service import EmbeddingService
 from .vector_db_service import VectorDBService, ChunkSearchResult
 from .scoring_service import ScoringService, SessionScore
 from .session_registry import SessionRegistry, SessionMetadata
+from .cache_service import CacheService
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,9 @@ class SearchService:
         session_registry: SessionRegistry,
         k_chunks: int = 200,
         top_n_sessions: int = 5,
-        preview_length: int = 200
+        preview_length: int = 200,
+        cache_service: Optional[CacheService] = None,
+        enable_cache: bool = True
     ):
         """
         Initialize the SearchService.
@@ -72,6 +75,8 @@ class SearchService:
             k_chunks: Number of chunks to retrieve in k-NN search (default 200)
             top_n_sessions: Number of top sessions to return (default 5)
             preview_length: Length of preview text in characters (default 200)
+            cache_service: Optional CacheService for caching embeddings and results
+            enable_cache: Whether to use caching (default True)
         """
         self.embedding_service = embedding_service
         self.vector_db_service = vector_db_service
@@ -81,8 +86,19 @@ class SearchService:
         self.top_n_sessions = top_n_sessions
         self.preview_length = preview_length
 
+        # Initialize cache if enabled
+        self.enable_cache = enable_cache
+        if enable_cache and cache_service is None:
+            self.cache_service = CacheService()
+            logger.info("Initialized default CacheService")
+        else:
+            self.cache_service = cache_service
+
+        if not enable_cache:
+            logger.info("Caching disabled")
+
         logger.info(
-            f"Initialized SearchService (k={k_chunks}, top_n={top_n_sessions})"
+            f"Initialized SearchService (k={k_chunks}, top_n={top_n_sessions}, cache={'enabled' if enable_cache else 'disabled'})"
         )
 
     def search(
@@ -107,14 +123,34 @@ class SearchService:
 
         logger.info(f"Searching for query: '{query[:50]}...' (top_n={top_n})")
 
-        # Step 1: Generate query embedding
+        # Try to get cached results first
+        if self.enable_cache and self.cache_service:
+            cached_results = self.cache_service.get_search_results(query, filter_metadata)
+            if cached_results is not None:
+                logger.info(f"Returning {len(cached_results)} cached search results")
+                return cached_results[:top_n]  # Respect top_n parameter
+
+        # Step 1: Generate query embedding (with caching)
         logger.debug("Generating query embedding...")
         self.embedding_service.load_model()
-        query_embedding = self.embedding_service.embed_single(query)
 
-        if not query_embedding:
-            logger.warning("Failed to generate query embedding")
-            return []
+        # Try to get cached embedding
+        query_embedding = None
+        if self.enable_cache and self.cache_service:
+            query_embedding = self.cache_service.get_query_embedding(query)
+            if query_embedding:
+                logger.debug("Using cached query embedding")
+
+        # Generate new embedding if not cached
+        if query_embedding is None:
+            query_embedding = self.embedding_service.embed_single(query)
+            if not query_embedding:
+                logger.warning("Failed to generate query embedding")
+                return []
+
+            # Cache the embedding
+            if self.enable_cache and self.cache_service:
+                self.cache_service.put_query_embedding(query, query_embedding)
 
         # Step 2: Perform k-NN search
         logger.debug(f"Performing k-NN search (k={self.k_chunks})...")
@@ -164,6 +200,11 @@ class SearchService:
             f"Returning {len(results)} results "
             f"(scores: {[f'{r.score.final_score:.3f}' for r in results]})"
         )
+
+        # Cache the results
+        if self.enable_cache and self.cache_service:
+            self.cache_service.put_search_results(query, results, filter_metadata)
+            logger.debug("Search results cached")
 
         return results
 
@@ -358,10 +399,17 @@ class SearchService:
         db_stats = self.vector_db_service.get_stats()
         registry_stats = self.session_registry.get_stats()
 
-        return {
+        stats = {
             'k_chunks': self.k_chunks,
             'top_n_sessions': self.top_n_sessions,
             'preview_length': self.preview_length,
+            'cache_enabled': self.enable_cache,
             'vector_db': db_stats,
             'registry': registry_stats,
         }
+
+        # Add cache statistics if caching is enabled
+        if self.enable_cache and self.cache_service:
+            stats['cache'] = self.cache_service.get_stats()
+
+        return stats

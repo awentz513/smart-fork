@@ -57,7 +57,7 @@ These features provide significant user value with relatively straightforward im
       "Add cache hit/miss statistics",
       "Configure cache size via settings"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ux",

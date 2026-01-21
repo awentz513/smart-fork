@@ -36,6 +36,16 @@ class SearchConfig:
 
 
 @dataclass
+class CacheConfig:
+    """Configuration for caching."""
+    enabled: bool = True
+    embedding_cache_size: int = 100
+    embedding_ttl_seconds: float = 300.0  # 5 minutes
+    result_cache_size: int = 50
+    result_ttl_seconds: float = 300.0  # 5 minutes
+
+
+@dataclass
 class ChunkingConfig:
     """Configuration for text chunking."""
     target_tokens: int = 750
@@ -70,6 +80,7 @@ class Config:
     """Main configuration container."""
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     indexing: IndexingConfig = field(default_factory=IndexingConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -81,6 +92,7 @@ class Config:
         return {
             "embedding": asdict(self.embedding),
             "search": asdict(self.search),
+            "cache": asdict(self.cache),
             "chunking": asdict(self.chunking),
             "indexing": asdict(self.indexing),
             "server": asdict(self.server),
@@ -97,6 +109,8 @@ class Config:
             config.embedding = EmbeddingConfig(**data["embedding"])
         if "search" in data:
             config.search = SearchConfig(**data["search"])
+        if "cache" in data:
+            config.cache = CacheConfig(**data["cache"])
         if "chunking" in data:
             config.chunking = ChunkingConfig(**data["chunking"])
         if "indexing" in data:
@@ -258,6 +272,20 @@ class ConfigManager:
                     return False
                 if not 0.0 <= self._config.search.recency_weight <= 1.0:
                     logger.error("recency_weight must be between 0 and 1")
+                    return False
+
+                # Validate cache config
+                if self._config.cache.embedding_cache_size <= 0:
+                    logger.error("Invalid embedding_cache_size")
+                    return False
+                if self._config.cache.result_cache_size <= 0:
+                    logger.error("Invalid result_cache_size")
+                    return False
+                if self._config.cache.embedding_ttl_seconds <= 0:
+                    logger.error("Invalid embedding_ttl_seconds")
+                    return False
+                if self._config.cache.result_ttl_seconds <= 0:
+                    logger.error("Invalid result_ttl_seconds")
                     return False
 
                 # Validate chunking config
