@@ -134,7 +134,7 @@ This plan addresses gaps identified between the PRD specification and current im
       "Apply PATTERN (+5%), WORKING_SOLUTION (+8%), WAITING (+2%) boosts",
       "Test that sessions with memory markers rank higher"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "enhancement",
