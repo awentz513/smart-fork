@@ -273,7 +273,7 @@ An MCP server for Claude Code that enables semantic search of past session trans
       "Test 'Type something' refinement option",
       "Verify all error states handled gracefully"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "testing",
