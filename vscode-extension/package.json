@@ -1,0 +1,86 @@
+{
+  "name": "smart-fork",
+  "displayName": "Smart Fork",
+  "description": "AI-powered fork detection for Claude Code sessions - find and reuse relevant past work",
+  "version": "0.1.0",
+  "publisher": "smart-fork",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "fork",
+    "session",
+    "search",
+    "ai"
+  ],
+  "activationEvents": [
+    "onCommand:smart-fork.search",
+    "onCommand:smart-fork.fork",
+    "onCommand:smart-fork.history",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "smart-fork.search",
+        "title": "Smart Fork: Search Sessions",
+        "category": "Smart Fork"
+      },
+      {
+        "command": "smart-fork.fork",
+        "title": "Smart Fork: Fork from Session",
+        "category": "Smart Fork"
+      },
+      {
+        "command": "smart-fork.history",
+        "title": "Smart Fork: View Fork History",
+        "category": "Smart Fork"
+      }
+    ],
+    "configuration": {
+      "title": "Smart Fork",
+      "properties": {
+        "smart-fork.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Smart Fork MCP server executable (defaults to 'python -m smart_fork.server')"
+        },
+        "smart-fork.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python executable to use for running the MCP server"
+        },
+        "smart-fork.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the Smart Fork MCP server when VS Code starts"
+        },
+        "smart-fork.searchResultsLimit": {
+          "type": "number",
+          "default": 5,
+          "description": "Maximum number of search results to display"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {}
+}

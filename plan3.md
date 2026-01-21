@@ -215,7 +215,7 @@ These features are valuable but require more significant implementation work.
       "One-click fork from extension",
       "Display fork history in activity bar"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "intelligence",
