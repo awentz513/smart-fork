@@ -13,6 +13,7 @@ import uvicorn
 from .search_service import SearchService, SessionSearchResult
 from .session_registry import SessionRegistry
 from .background_indexer import BackgroundIndexer
+from .session_parser import SessionParser
 
 
 # Configure logging
@@ -102,14 +103,26 @@ async def startup_event():
         search_service = SearchService(session_registry=session_registry)
         logger.info("Search service initialized")
 
+        # Get Claude directory to monitor
+        claude_dir = Path.home() / ".claude"
+
         # Initialize background indexer
+        session_parser = SessionParser()
         background_indexer = BackgroundIndexer(
-            session_registry=session_registry,
+            claude_dir=claude_dir,
             vector_db=search_service.vector_db,
+            session_registry=session_registry,
             embedding_service=search_service.embedding_service,
-            chunking_service=search_service.chunking_service
+            chunking_service=search_service.chunking_service,
+            session_parser=session_parser,
+            debounce_seconds=5.0,
+            checkpoint_interval=15
         )
         logger.info("Background indexer initialized")
+
+        # Start background indexer to begin monitoring
+        background_indexer.start()
+        logger.info(f"Background indexer started, monitoring {claude_dir}")
 
         logger.info("Smart Fork API services started successfully")
 

@@ -10,6 +10,7 @@ from smart_fork.selection_ui import SelectionUI, SelectionOption
 from smart_fork.search_service import SessionSearchResult
 from smart_fork.scoring_service import SessionScore
 from smart_fork.session_registry import SessionMetadata
+from smart_fork.fork_generator import ForkGenerator
 
 
 @dataclass
@@ -424,6 +425,103 @@ class TestOptionDataclass:
         assert option.score is None
         assert option.metadata is None
         assert option.preview is None
+        assert option.fork_terminal_cmd is None
+        assert option.fork_in_session_cmd is None
+
+
+class TestSelectionUIWithForkGenerator:
+    """Test SelectionUI with ForkGenerator integration."""
+
+    def test_create_options_with_fork_generator(self):
+        """Test creating options with fork commands when ForkGenerator is provided."""
+        fork_generator = ForkGenerator(claude_sessions_dir="~/.claude")
+        ui = SelectionUI(fork_generator=fork_generator)
+
+        results = [
+            create_mock_result("session1", 0.9),
+            create_mock_result("session2", 0.8),
+        ]
+        query = "test query"
+
+        options = ui.create_options(results, query)
+
+        # Should have exactly 5 options
+        assert len(options) == 5
+
+        # First 2 should be results with fork commands
+        assert options[0].session_id == "session1"
+        assert options[0].fork_terminal_cmd is not None
+        assert "claude --resume session1" in options[0].fork_terminal_cmd
+        assert options[0].fork_in_session_cmd is not None
+        assert "/fork session1" in options[0].fork_in_session_cmd
+
+        assert options[1].session_id == "session2"
+        assert options[1].fork_terminal_cmd is not None
+        assert "claude --resume session2" in options[1].fork_terminal_cmd
+
+        # None and refine options should not have fork commands
+        none_option = [opt for opt in options if opt.id == "none"][0]
+        assert none_option.fork_terminal_cmd is None
+
+        refine_option = [opt for opt in options if opt.id == "refine"][0]
+        assert refine_option.fork_terminal_cmd is None
+
+    def test_create_options_without_fork_generator(self):
+        """Test creating options without ForkGenerator (backwards compatibility)."""
+        ui = SelectionUI()  # No fork_generator provided
+
+        results = [
+            create_mock_result("session1", 0.9),
+        ]
+        query = "test query"
+
+        options = ui.create_options(results, query)
+
+        # Should still work but without fork commands
+        assert len(options) == 5
+        assert options[0].session_id == "session1"
+        assert options[0].fork_terminal_cmd is None
+        assert options[0].fork_in_session_cmd is None
+
+    def test_format_selection_prompt_with_fork_commands(self):
+        """Test that fork commands are included in the formatted prompt."""
+        fork_generator = ForkGenerator(claude_sessions_dir="~/.claude")
+        ui = SelectionUI(fork_generator=fork_generator)
+
+        results = [
+            create_mock_result("session1", 0.9),
+        ]
+        query = "test query"
+
+        options = ui.create_options(results, query)
+        prompt = ui.format_selection_prompt(options, query)
+
+        # Check that fork commands are in the prompt
+        assert "Fork Commands (copy & paste):" in prompt
+        assert "New terminal:" in prompt
+        assert "In-session:" in prompt
+        assert "claude --resume session1" in prompt
+        assert "/fork session1" in prompt
+
+    def test_display_selection_includes_fork_commands(self):
+        """Test that display_selection includes fork commands in returned data."""
+        fork_generator = ForkGenerator(claude_sessions_dir="~/.claude")
+        ui = SelectionUI(fork_generator=fork_generator)
+
+        results = [
+            create_mock_result("session1", 0.9),
+        ]
+        query = "test query"
+
+        display_data = ui.display_selection(results, query)
+
+        # Check that fork commands are in the options data
+        assert 'options' in display_data
+        result_option = display_data['options'][0]
+        assert 'fork_terminal_cmd' in result_option
+        assert 'fork_in_session_cmd' in result_option
+        assert result_option['fork_terminal_cmd'] is not None
+        assert "claude --resume session1" in result_option['fork_terminal_cmd']
 
 
 if __name__ == "__main__":

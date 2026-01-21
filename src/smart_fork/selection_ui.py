@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .search_service import SessionSearchResult
+from .fork_generator import ForkGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ class SelectionOption:
     score: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
     preview: Optional[str] = None
+    fork_terminal_cmd: Optional[str] = None
+    fork_in_session_cmd: Optional[str] = None
 
 
 class SelectionUI:
@@ -38,8 +41,15 @@ class SelectionUI:
     - 'Type something else' refinement option
     """
 
-    def __init__(self):
-        """Initialize the SelectionUI."""
+    def __init__(self, fork_generator: Optional[ForkGenerator] = None):
+        """
+        Initialize the SelectionUI.
+
+        Args:
+            fork_generator: Optional ForkGenerator instance for generating fork commands.
+                          If not provided, fork commands will not be included in options.
+        """
+        self.fork_generator = fork_generator
         logger.info("Initialized SelectionUI")
 
     def format_date(self, date_str: str) -> str:
@@ -134,6 +144,33 @@ class SelectionUI:
 
             description = "\n".join(description_lines)
 
+            # Generate fork commands if fork_generator is available
+            fork_terminal_cmd = None
+            fork_in_session_cmd = None
+            if self.fork_generator:
+                try:
+                    from .session_registry import SessionMetadata
+                    # Convert metadata dict back to SessionMetadata for fork_generator
+                    session_metadata = None
+                    if result.metadata:
+                        session_metadata = SessionMetadata(
+                            session_id=result.session_id,
+                            project=result.metadata.project,
+                            created_at=result.metadata.created_at,
+                            last_synced=result.metadata.created_at,
+                            message_count=result.metadata.message_count,
+                            chunk_count=result.metadata.chunk_count,
+                            tags=result.metadata.tags or []
+                        )
+                    fork_cmd = self.fork_generator.generate_fork_command(
+                        result.session_id,
+                        metadata=session_metadata
+                    )
+                    fork_terminal_cmd = fork_cmd.terminal_command
+                    fork_in_session_cmd = fork_cmd.in_session_command
+                except Exception as e:
+                    logger.warning(f"Failed to generate fork commands for {result.session_id}: {e}")
+
             option = SelectionOption(
                 id=f"result_{idx}",
                 label=label,
@@ -142,7 +179,9 @@ class SelectionUI:
                 is_recommended=is_recommended,
                 score=result.score.final_score,
                 metadata=metadata_dict,
-                preview=result.preview
+                preview=result.preview,
+                fork_terminal_cmd=fork_terminal_cmd,
+                fork_in_session_cmd=fork_in_session_cmd
             )
 
             options.append(option)
@@ -209,10 +248,21 @@ class SelectionUI:
 
         for idx, option in enumerate(options, 1):
             lines.append(f"\n{idx}. {option.label}")
-            lines.append(f"   {option.description}")
+
+            # Format description with proper indentation
+            desc_lines = option.description.split('\n')
+            for desc_line in desc_lines:
+                lines.append(f"   {desc_line}")
 
             if option.is_recommended:
                 lines.append("   💡 This is the best match based on relevance scoring.")
+
+            # Add fork commands if available
+            if option.fork_terminal_cmd and option.fork_in_session_cmd:
+                lines.append("")
+                lines.append("   Fork Commands (copy & paste):")
+                lines.append(f"   New terminal:  {option.fork_terminal_cmd}")
+                lines.append(f"   In-session:    {option.fork_in_session_cmd}")
 
             lines.append("")
 
@@ -305,7 +355,9 @@ class SelectionUI:
                     'is_recommended': opt.is_recommended,
                     'score': opt.score,
                     'metadata': opt.metadata,
-                    'preview': opt.preview
+                    'preview': opt.preview,
+                    'fork_terminal_cmd': opt.fork_terminal_cmd,
+                    'fork_in_session_cmd': opt.fork_in_session_cmd
                 }
                 for opt in options
             ],

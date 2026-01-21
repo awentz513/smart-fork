@@ -6,6 +6,7 @@ session chunks with embeddings, supporting CRUD operations and similarity search
 """
 
 import os
+import json
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import chromadb
@@ -123,6 +124,9 @@ class VectorDBService:
                     processed[key] = value
                 elif value is None:
                     processed[key] = ""
+                elif isinstance(value, list):
+                    # Serialize lists to JSON string (e.g., memory_types)
+                    processed[key] = json.dumps(value)
                 else:
                     # Convert other types to string
                     processed[key] = str(value)
@@ -137,6 +141,34 @@ class VectorDBService:
         )
 
         return chunk_ids
+
+    def _deserialize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deserialize metadata from ChromaDB format back to Python types.
+
+        Specifically handles JSON-serialized lists (e.g., memory_types).
+
+        Args:
+            metadata: Raw metadata from ChromaDB
+
+        Returns:
+            Deserialized metadata dictionary
+        """
+        deserialized = {}
+        for key, value in metadata.items():
+            if isinstance(value, str):
+                # Try to parse as JSON (for lists that were serialized)
+                if value.startswith('[') and value.endswith(']'):
+                    try:
+                        deserialized[key] = json.loads(value)
+                    except json.JSONDecodeError:
+                        # Not valid JSON, keep as string
+                        deserialized[key] = value
+                else:
+                    deserialized[key] = value
+            else:
+                deserialized[key] = value
+        return deserialized
 
     def search_chunks(
         self,
@@ -182,6 +214,7 @@ class VectorDBService:
                 similarity = 1.0 / (1.0 + distances[i])
 
                 metadata = metadatas[i] if metadatas else {}
+                metadata = self._deserialize_metadata(metadata)
 
                 search_results.append(ChunkSearchResult(
                     chunk_id=chunk_ids[i],
@@ -235,6 +268,7 @@ class VectorDBService:
 
             if results["ids"] and len(results["ids"]) > 0:
                 metadata = results["metadatas"][0] if results["metadatas"] else {}
+                metadata = self._deserialize_metadata(metadata)
 
                 return ChunkSearchResult(
                     chunk_id=results["ids"][0],
@@ -268,6 +302,7 @@ class VectorDBService:
         if results["ids"]:
             for i in range(len(results["ids"])):
                 metadata = results["metadatas"][i] if results["metadatas"] else {}
+                metadata = self._deserialize_metadata(metadata)
 
                 chunks.append(ChunkSearchResult(
                     chunk_id=results["ids"][i],

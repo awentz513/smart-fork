@@ -354,13 +354,17 @@ class BackgroundIndexer:
             for i, chunk in enumerate(chunks):
                 chunk_ids.append(f"{session_id}_chunk_{i}")
                 chunk_texts.append(chunk.content)
-                chunk_metadata.append({
+                metadata = {
                     'session_id': session_id,
                     'chunk_index': i,
                     'start_index': chunk.start_index,
                     'end_index': chunk.end_index,
                     'token_count': chunk.token_count
-                })
+                }
+                # Add memory_types if present
+                if chunk.memory_types:
+                    metadata['memory_types'] = chunk.memory_types
+                chunk_metadata.append(metadata)
 
             self.vector_db.add_chunks(
                 chunks=chunk_texts,

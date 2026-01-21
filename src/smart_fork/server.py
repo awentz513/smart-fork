@@ -4,6 +4,8 @@ import json
 import sys
 import os
 import logging
+import signal
+import atexit
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -13,6 +15,10 @@ from .scoring_service import ScoringService
 from .session_registry import SessionRegistry
 from .search_service import SearchService
 from .selection_ui import SelectionUI
+from .background_indexer import BackgroundIndexer
+from .session_parser import SessionParser
+from .chunking_service import ChunkingService
+from .fork_generator import ForkGenerator
 
 # Configure logging
 logging.basicConfig(
@@ -26,7 +32,11 @@ logger = logging.getLogger(__name__)
 class MCPServer:
     """Basic MCP server implementing JSON-RPC 2.0 over stdio."""
 
-    def __init__(self, search_service: Optional[SearchService] = None) -> None:
+    def __init__(
+        self,
+        search_service: Optional[SearchService] = None,
+        background_indexer: Optional[BackgroundIndexer] = None
+    ) -> None:
         """Initialize the MCP server."""
         self.tools: Dict[str, Dict[str, Any]] = {}
         self.server_info = {
@@ -34,6 +44,7 @@ class MCPServer:
             "version": "0.1.0"
         }
         self.search_service = search_service
+        self.background_indexer = background_indexer
 
     def register_tool(
         self,
@@ -157,18 +168,25 @@ class MCPServer:
                 print(f"Error handling request: {e}", file=sys.stderr)
 
 
-def format_search_results_with_selection(query: str, results: List[Any]) -> str:
+def format_search_results_with_selection(
+    query: str,
+    results: List[Any],
+    claude_dir: Optional[str] = None
+) -> str:
     """
     Format search results with interactive selection UI.
 
     Args:
         query: Search query
         results: List of search results
+        claude_dir: Optional path to Claude directory (for ForkGenerator)
 
     Returns:
         Formatted selection prompt
     """
-    selection_ui = SelectionUI()
+    # Create ForkGenerator for generating fork commands
+    fork_generator = ForkGenerator(claude_sessions_dir=claude_dir or "~/.claude")
+    selection_ui = SelectionUI(fork_generator=fork_generator)
 
     if not results:
         # Show no results message with options to refine or start fresh
@@ -195,8 +213,17 @@ Tip: The system searches through all your past Claude Code sessions to find rele
     return selection_data['prompt']
 
 
-def create_fork_detect_handler(search_service: Optional[SearchService]):
-    """Create the fork-detect handler with access to search service."""
+def create_fork_detect_handler(
+    search_service: Optional[SearchService],
+    claude_dir: Optional[str] = None
+):
+    """
+    Create the fork-detect handler with access to search service.
+
+    Args:
+        search_service: SearchService instance for performing searches
+        claude_dir: Optional path to Claude directory (for ForkGenerator)
+    """
     def fork_detect_handler(arguments: Dict[str, Any]) -> str:
         """Handler for /fork-detect tool."""
         query = arguments.get("query", "")
@@ -222,8 +249,12 @@ Please ensure all dependencies are installed and the database is initialized.
             logger.info(f"Processing fork-detect query: {query}")
             results = search_service.search(query, top_n=5)
 
-            # Format and return results with selection UI
-            formatted_output = format_search_results_with_selection(query, results)
+            # Format and return results with selection UI (including fork commands)
+            formatted_output = format_search_results_with_selection(
+                query,
+                results,
+                claude_dir=claude_dir
+            )
             logger.info(f"Returned {len(results)} results for query with selection UI")
 
             return formatted_output
@@ -243,7 +274,7 @@ Please check the logs for more details.
     return fork_detect_handler
 
 
-def initialize_services(storage_dir: Optional[str] = None) -> Optional[SearchService]:
+def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[SearchService], Optional[BackgroundIndexer]]:
     """
     Initialize all required services for the MCP server.
 
@@ -251,7 +282,7 @@ def initialize_services(storage_dir: Optional[str] = None) -> Optional[SearchSer
         storage_dir: Directory for storing database and registry (default: ~/.smart-fork)
 
     Returns:
-        SearchService instance if initialization succeeds, None otherwise
+        Tuple of (SearchService, BackgroundIndexer) if initialization succeeds, (None, None) otherwise
     """
     try:
         # Determine storage directory
@@ -272,6 +303,8 @@ def initialize_services(storage_dir: Optional[str] = None) -> Optional[SearchSer
         vector_db_service = VectorDBService(persist_directory=str(vector_db_path))
         scoring_service = ScoringService()
         session_registry = SessionRegistry(registry_path=str(registry_path))
+        chunking_service = ChunkingService()
+        session_parser = SessionParser()
 
         # Create search service
         search_service = SearchService(
@@ -284,17 +317,46 @@ def initialize_services(storage_dir: Optional[str] = None) -> Optional[SearchSer
             preview_length=200
         )
 
+        # Get Claude directory to monitor
+        claude_dir = Path.home() / ".claude"
+
+        # Create background indexer
+        background_indexer = BackgroundIndexer(
+            claude_dir=claude_dir,
+            vector_db=vector_db_service,
+            session_registry=session_registry,
+            embedding_service=embedding_service,
+            chunking_service=chunking_service,
+            session_parser=session_parser,
+            debounce_seconds=5.0,
+            checkpoint_interval=15
+        )
+
         logger.info("Services initialized successfully")
-        return search_service
+        return search_service, background_indexer
 
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}", exc_info=True)
-        return None
+        return None, None
 
 
-def create_server(search_service: Optional[SearchService] = None) -> MCPServer:
-    """Create and configure the MCP server."""
-    server = MCPServer(search_service=search_service)
+def create_server(
+    search_service: Optional[SearchService] = None,
+    background_indexer: Optional[BackgroundIndexer] = None,
+    claude_dir: Optional[str] = None
+) -> MCPServer:
+    """
+    Create and configure the MCP server.
+
+    Args:
+        search_service: Optional SearchService instance
+        background_indexer: Optional BackgroundIndexer instance
+        claude_dir: Optional path to Claude directory (for ForkGenerator)
+    """
+    server = MCPServer(
+        search_service=search_service,
+        background_indexer=background_indexer
+    )
 
     # Register /fork-detect tool
     server.register_tool(
@@ -310,7 +372,7 @@ def create_server(search_service: Optional[SearchService] = None) -> MCPServer:
             },
             "required": ["query"]
         },
-        handler=create_fork_detect_handler(search_service)
+        handler=create_fork_detect_handler(search_service, claude_dir=claude_dir)
     )
 
     return server
@@ -319,13 +381,41 @@ def create_server(search_service: Optional[SearchService] = None) -> MCPServer:
 def main() -> None:
     """Main entry point for the Smart Fork MCP server."""
     # Initialize services (may be None if initialization fails)
-    search_service = initialize_services()
+    search_service, background_indexer = initialize_services()
 
     if search_service is None:
         logger.warning("Services not initialized - server will run with limited functionality")
 
+    # Get Claude directory path
+    claude_dir = str(Path.home() / ".claude")
+
+    # Start background indexer if initialized
+    if background_indexer is not None:
+        background_indexer.start()
+        logger.info("Background indexer started")
+
+        # Register cleanup handlers
+        def cleanup():
+            if background_indexer is not None and background_indexer.is_running():
+                logger.info("Stopping background indexer...")
+                background_indexer.stop()
+
+        atexit.register(cleanup)
+
+        # Handle SIGTERM and SIGINT gracefully
+        def signal_handler(signum, frame):
+            cleanup()
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
     # Create and run server
-    server = create_server(search_service=search_service)
+    server = create_server(
+        search_service=search_service,
+        background_indexer=background_indexer,
+        claude_dir=claude_dir
+    )
     server.run()
 
 

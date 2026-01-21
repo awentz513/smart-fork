@@ -337,12 +337,16 @@ class InitialSetup:
             chunk_metadata = []
             for i, chunk in enumerate(chunks):
                 chunk_ids.append(f"{session_id}_{i}")
-                chunk_metadata.append({
+                metadata = {
                     'session_id': session_id,
                     'chunk_index': i,
                     'start_index': chunk.start_index,
                     'end_index': chunk.end_index
-                })
+                }
+                # Add memory_types if present
+                if chunk.memory_types:
+                    metadata['memory_types'] = chunk.memory_types
+                chunk_metadata.append(metadata)
 
             # Add to vector database
             self.vector_db_service.add_chunks(
