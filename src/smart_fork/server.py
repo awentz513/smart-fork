@@ -24,6 +24,7 @@ from .config_manager import ConfigManager
 from .fork_history_service import ForkHistoryService
 from .preference_service import PreferenceService
 from .session_tag_service import SessionTagService
+from .duplicate_detection_service import DuplicateDetectionService
 
 # Configure logging
 logging.basicConfig(
@@ -926,6 +927,100 @@ Tags help organize and categorize your sessions. Use add-session-tag to start ta
     return list_tags_handler
 
 
+def create_similar_sessions_handler(
+    duplicate_service: Optional[DuplicateDetectionService]
+):
+    """
+    Create the get-similar-sessions handler.
+
+    Args:
+        duplicate_service: DuplicateDetectionService instance for finding similar sessions
+    """
+    def similar_sessions_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for get-similar-sessions tool."""
+        session_id = arguments.get("session_id", "")
+        top_k = arguments.get("top_k", 5)
+        include_scores = arguments.get("include_scores", True)
+
+        if not session_id:
+            return "Error: Please provide a session_id."
+
+        if duplicate_service is None:
+            return "Error: Duplicate detection service is not initialized."
+
+        try:
+            # Get similar sessions
+            similar_sessions = duplicate_service.get_similar_sessions(
+                session_id=session_id,
+                top_k=top_k,
+                include_metadata=True
+            )
+
+            if not similar_sessions:
+                return f"""Similar Sessions for {session_id}
+
+No similar sessions found above the similarity threshold ({duplicate_service.similarity_threshold}).
+
+This session appears to be unique in your database. This is normal if:
+- The session covers a unique topic or problem
+- You have relatively few sessions indexed
+- The session has very few chunks (< {duplicate_service.min_chunks_for_comparison})
+
+💡 Tip: Use fork-detect to search for sessions by topic instead."""
+
+            # Format the output
+            output = f"""Similar Sessions for {session_id}
+
+Found {len(similar_sessions)} similar session(s) (threshold: {duplicate_service.similarity_threshold}):
+
+"""
+            for i, similar in enumerate(similar_sessions, 1):
+                # Format similarity score
+                similarity_pct = f"{similar.similarity * 100:.1f}%"
+
+                # Get metadata info
+                metadata = similar.metadata or {}
+                created_at = metadata.get('created_at', 'Unknown')
+                num_messages = metadata.get('message_count', '?')
+
+                # Format created date
+                if created_at != 'Unknown':
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        date_str = dt.strftime("%Y-%m-%d")
+                    except:
+                        date_str = created_at
+                else:
+                    date_str = "Unknown"
+
+                output += f"{i}. {similar.session_id}"
+
+                if include_scores:
+                    output += f"\n   Similarity: {similarity_pct}"
+
+                output += f"\n   Date: {date_str}"
+                output += f"\n   Messages: {num_messages}\n"
+
+            output += """
+---
+These sessions may be:
+- Duplicates (very high similarity)
+- Related work on the same topic
+- Sessions that could be merged or archived
+
+Use get-session-preview to compare their content.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error getting similar sessions: {e}", exc_info=True)
+            return f"Error: Failed to get similar sessions: {str(e)}"
+
+    return similar_sessions_handler
+
+
 def create_server(
     search_service: Optional[SearchService] = None,
     background_indexer: Optional[BackgroundIndexer] = None,
@@ -933,7 +1028,8 @@ def create_server(
     session_registry: Optional[Any] = None,
     fork_history_service: Optional[ForkHistoryService] = None,
     preference_service: Optional[PreferenceService] = None,
-    tag_service: Optional[SessionTagService] = None
+    tag_service: Optional[SessionTagService] = None,
+    duplicate_service: Optional[DuplicateDetectionService] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -945,6 +1041,8 @@ def create_server(
         session_registry: Optional SessionRegistry for database stats
         fork_history_service: Optional ForkHistoryService for tracking fork history
         preference_service: Optional PreferenceService for learning from selections
+        tag_service: Optional SessionTagService for managing session tags
+        duplicate_service: Optional DuplicateDetectionService for finding similar sessions
     """
     server = MCPServer(
         search_service=search_service,
@@ -1125,6 +1223,33 @@ def create_server(
         handler=create_list_tags_handler(tag_service)
     )
 
+    # Register get-similar-sessions tool
+    server.register_tool(
+        name="get-similar-sessions",
+        description="Find sessions similar to a given session (for detecting duplicates or related work)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID to find similar sessions for"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Maximum number of similar sessions to return (default: 5)",
+                    "default": 5
+                },
+                "include_scores": {
+                    "type": "boolean",
+                    "description": "Whether to include similarity scores in output (default: true)",
+                    "default": True
+                }
+            },
+            "required": ["session_id"]
+        },
+        handler=create_similar_sessions_handler(duplicate_service)
+    )
+
     return server
 
 
@@ -1178,6 +1303,17 @@ def main() -> None:
         tag_service = SessionTagService(session_registry)
         logger.info("Session tag service initialized")
 
+    # Initialize duplicate detection service
+    duplicate_service = None
+    if search_service is not None:
+        vector_db_service = getattr(search_service, 'vector_db_service', None)
+        if vector_db_service is not None and session_registry is not None:
+            duplicate_service = DuplicateDetectionService(
+                vector_db_service=vector_db_service,
+                session_registry=session_registry
+            )
+            logger.info("Duplicate detection service initialized")
+
     # Create and run server
     server = create_server(
         search_service=search_service,
@@ -1186,7 +1322,8 @@ def main() -> None:
         session_registry=session_registry,
         fork_history_service=fork_history_service,
         preference_service=preference_service,
-        tag_service=tag_service
+        tag_service=tag_service,
+        duplicate_service=duplicate_service
     )
     server.run()
 

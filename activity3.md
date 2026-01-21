@@ -4,7 +4,7 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 
 ---
 
-## Completed (8/14)
+## Completed (9/14)
 
 ### P1 Tasks (4/4 Complete)
 
@@ -28,7 +28,7 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 - Persistent at ~/.smart-fork/embedding_cache/
 - Tests: 50/50 passing
 
-### P2 Tasks (4/5 Complete)
+### P2 Tasks (5/5 Complete)
 
 **Preference Learning** ✅ 2026-01-21
 - PreferenceService tracks user selections
@@ -61,12 +61,19 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 - Performance: 2-3x speedup with 4 workers on typical workloads
 - Tests: 41/41 passing (4 unit + 37 existing tests)
 
+**Duplicate Session Detection** ✅ 2026-01-21
+- DuplicateDetectionService computes session-level embeddings (averaging chunks)
+- Cosine similarity detection with configurable threshold (default: 0.85)
+- MCP tool: get-similar-sessions (session_id, top_k, include_scores)
+- Methods: get_similar_sessions(), find_all_duplicate_pairs(), flag_duplicates_in_results()
+- Minimum chunk requirement (default: 3) for quality comparisons
+- Tests: 15/15 passing
+
 ---
 
-## Remaining (6/14)
+## Remaining (5/14)
 
-### P2 (1 remaining)
-- Duplicate session detection
+### P2 (0 remaining)
 
 ### P3 (5 remaining)
 - Automatic topic clustering

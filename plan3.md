@@ -178,7 +178,7 @@ These features add meaningful capabilities with moderate implementation complexi
       "Add get-similar-sessions MCP tool",
       "Suggest session merging for high similarity"
     ],
-    "passes": false
+    "passes": true
   }
 ]
 ```
