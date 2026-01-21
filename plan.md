@@ -299,7 +299,7 @@ An MCP server for Claude Code that enables semantic search of past session trans
       "Include privacy best practices",
       "Add example usage scenarios"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "deployment",
