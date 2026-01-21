@@ -201,7 +201,7 @@ These features are valuable but require more significant implementation work.
       "Allow browsing sessions by cluster",
       "Update clusters on new session indexing"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "integration",

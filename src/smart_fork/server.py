@@ -27,6 +27,7 @@ from .session_tag_service import SessionTagService
 from .duplicate_detection_service import DuplicateDetectionService
 from .session_clustering_service import SessionClusteringService
 from .session_summary_service import SessionSummaryService
+from .session_diff_service import SessionDiffService
 
 # Configure logging
 logging.basicConfig(
@@ -313,6 +314,7 @@ def create_fork_detect_handler(
         start_date = arguments.get("start_date")
         end_date = arguments.get("end_date")
         tags = arguments.get("tags")
+        include_archive = arguments.get("include_archive", False)
 
         if not query:
             return "Error: Please provide a query describing what you want to do."
@@ -384,14 +386,15 @@ Need help? See: README.md > Troubleshooting
                 tags_list = [t.strip() for t in tags.split(",")] if isinstance(tags, str) else tags
                 tags_desc = f", tags: {', '.join(tags_list)}"
 
-            logger.info(f"Processing fork-detect query: {query} (scope: {project_display}{temporal_desc}{tags_desc})")
+            logger.info(f"Processing fork-detect query: {query} (scope: {project_display}{temporal_desc}{tags_desc}, include_archive: {include_archive})")
             results = search_service.search(
                 query,
                 top_n=5,
                 filter_metadata=filter_metadata,
                 time_range=time_range,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                include_archive=include_archive
             )
 
             # Filter by tags if provided
@@ -1312,6 +1315,142 @@ Use get-session-preview for full content, or fork-detect to search for related s
     return session_summary_handler
 
 
+def create_compare_sessions_handler(
+    diff_service: Optional[SessionDiffService]
+):
+    """
+    Create the compare-sessions handler.
+
+    Args:
+        diff_service: SessionDiffService instance for comparing sessions
+    """
+    def compare_sessions_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for compare-sessions tool."""
+        session_id_1 = arguments.get("session_id_1", "")
+        session_id_2 = arguments.get("session_id_2", "")
+        include_content = arguments.get("include_content", False)
+
+        if not session_id_1:
+            return "Error: Please provide session_id_1."
+
+        if not session_id_2:
+            return "Error: Please provide session_id_2."
+
+        if diff_service is None:
+            return "Error: Session diff service is not initialized."
+
+        try:
+            # Compare the sessions
+            diff = diff_service.compare_sessions(session_id_1, session_id_2)
+
+            if diff is None:
+                return f"""Session Comparison Failed
+
+Could not compare sessions '{session_id_1}' and '{session_id_2}'.
+
+Possible reasons:
+- One or both sessions do not exist
+- One or both sessions have no content/chunks
+- Embeddings could not be retrieved
+
+Use get-session-preview to verify the sessions exist and have content.
+"""
+
+            # Format the output
+            similarity_pct = f"{diff.similarity_score * 100:.1f}%"
+
+            output = f"""Session Comparison: {session_id_1} vs {session_id_2}
+
+Overall Similarity: {similarity_pct}
+"""
+
+            # Common messages section
+            if diff.common_messages:
+                output += f"\nCommon Content ({len(diff.common_messages)} matching messages):\n"
+
+                # Show top 5 matches
+                for i, match in enumerate(diff.common_messages[:5], 1):
+                    similarity = f"{match.similarity * 100:.0f}%"
+                    output += f"  {i}. Match (similarity: {similarity})\n"
+
+                    if include_content:
+                        # Show truncated content
+                        content_1_preview = match.content_1[:80] + "..." if len(match.content_1) > 80 else match.content_1
+                        content_2_preview = match.content_2[:80] + "..." if len(match.content_2) > 80 else match.content_2
+                        output += f"     Session 1: {content_1_preview}\n"
+                        output += f"     Session 2: {content_2_preview}\n"
+
+                if len(diff.common_messages) > 5:
+                    output += f"  ... and {len(diff.common_messages) - 5} more matches\n"
+            else:
+                output += "\nCommon Content: None\n"
+
+            # Unique content section
+            output += f"\nUnique to {session_id_1}: {len(diff.unique_to_1)} messages\n"
+            if include_content and diff.unique_to_1:
+                unique_content_1 = diff_service.get_message_content(
+                    session_id_1,
+                    diff.unique_to_1[:3],  # Show first 3
+                    max_length=100
+                )
+                for i, content in enumerate(unique_content_1, 1):
+                    output += f"  {i}. {content}\n"
+                if len(diff.unique_to_1) > 3:
+                    output += f"  ... and {len(diff.unique_to_1) - 3} more\n"
+
+            output += f"\nUnique to {session_id_2}: {len(diff.unique_to_2)} messages\n"
+            if include_content and diff.unique_to_2:
+                unique_content_2 = diff_service.get_message_content(
+                    session_id_2,
+                    diff.unique_to_2[:3],  # Show first 3
+                    max_length=100
+                )
+                for i, content in enumerate(unique_content_2, 1):
+                    output += f"  {i}. {content}\n"
+                if len(diff.unique_to_2) > 3:
+                    output += f"  ... and {len(diff.unique_to_2) - 3} more\n"
+
+            # Topics/Technologies section
+            if diff.common_topics:
+                topics_str = ", ".join(diff.common_topics[:10])
+                output += f"\nCommon Topics: {topics_str}\n"
+                if len(diff.common_topics) > 10:
+                    output += f"  ... and {len(diff.common_topics) - 10} more\n"
+            else:
+                output += "\nCommon Topics: None\n"
+
+            if diff.topics_1:
+                topics_str = ", ".join(diff.topics_1[:10])
+                output += f"\nUnique to {session_id_1}: {topics_str}\n"
+                if len(diff.topics_1) > 10:
+                    output += f"  ... and {len(diff.topics_1) - 10} more\n"
+
+            if diff.topics_2:
+                topics_str = ", ".join(diff.topics_2[:10])
+                output += f"\nUnique to {session_id_2}: {topics_str}\n"
+                if len(diff.topics_2) > 10:
+                    output += f"  ... and {len(diff.topics_2) - 10} more\n"
+
+            output += """
+---
+This comparison helps you understand:
+- How similar two sessions are (duplicate detection)
+- What unique work was done in each session
+- Which technologies/topics differ between sessions
+
+Use get-session-preview to view full session content.
+Use include_content=true to see message snippets in the comparison.
+"""
+
+            return output
+
+        except Exception as e:
+            logger.error(f"Error comparing sessions: {e}", exc_info=True)
+            return f"Error: Failed to compare sessions: {str(e)}"
+
+    return compare_sessions_handler
+
+
 def create_server(
     search_service: Optional[SearchService] = None,
     background_indexer: Optional[BackgroundIndexer] = None,
@@ -1321,7 +1460,8 @@ def create_server(
     preference_service: Optional[PreferenceService] = None,
     tag_service: Optional[SessionTagService] = None,
     duplicate_service: Optional[DuplicateDetectionService] = None,
-    clustering_service: Optional[SessionClusteringService] = None
+    clustering_service: Optional[SessionClusteringService] = None,
+    diff_service: Optional[SessionDiffService] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -1336,6 +1476,7 @@ def create_server(
         tag_service: Optional SessionTagService for managing session tags
         duplicate_service: Optional DuplicateDetectionService for finding similar sessions
         clustering_service: Optional SessionClusteringService for automatic topic clustering
+        diff_service: Optional SessionDiffService for comparing sessions
     """
     server = MCPServer(
         search_service=search_service,
@@ -1377,6 +1518,11 @@ def create_server(
                 "tags": {
                     "type": "string",
                     "description": "Optional comma-separated list of tags to filter results (e.g., 'bug-fix,urgent' or 'react'). Sessions must have at least one matching tag."
+                },
+                "include_archive": {
+                    "type": "boolean",
+                    "description": "Whether to include archived sessions in search results (default: false)",
+                    "default": false
                 }
             },
             "required": ["query"]
@@ -1560,6 +1706,76 @@ def create_server(
         handler=create_session_summary_handler(session_registry)
     )
 
+    # Register compare-sessions tool
+    server.register_tool(
+        name="compare-sessions",
+        description="Compare two sessions to identify common content, unique messages, and differences in topics/technologies",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id_1": {
+                    "type": "string",
+                    "description": "First session ID to compare"
+                },
+                "session_id_2": {
+                    "type": "string",
+                    "description": "Second session ID to compare"
+                },
+                "include_content": {
+                    "type": "boolean",
+                    "description": "Whether to include message content snippets in the output (default: false)",
+                    "default": False
+                }
+            },
+            "required": ["session_id_1", "session_id_2"]
+        },
+        handler=create_compare_sessions_handler(diff_service)
+    )
+
+    # Register cluster-sessions tool
+    server.register_tool(
+        name="cluster-sessions",
+        description="Automatically cluster sessions by topic using k-means on session embeddings",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "num_clusters": {
+                    "type": "integer",
+                    "description": "Number of clusters to create (default: 10, auto-adjusted based on available sessions)"
+                }
+            }
+        },
+        handler=create_cluster_sessions_handler(clustering_service)
+    )
+
+    # Register get-session-clusters tool
+    server.register_tool(
+        name="get-session-clusters",
+        description="Get all session clusters and their metadata",
+        input_schema={
+            "type": "object",
+            "properties": {}
+        },
+        handler=create_get_clusters_handler(clustering_service)
+    )
+
+    # Register get-cluster-sessions tool
+    server.register_tool(
+        name="get-cluster-sessions",
+        description="Get all sessions in a specific cluster",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer",
+                    "description": "Cluster ID to retrieve sessions for"
+                }
+            },
+            "required": ["cluster_id"]
+        },
+        handler=create_get_cluster_sessions_handler(clustering_service)
+    )
+
     return server
 
 
@@ -1635,6 +1851,19 @@ def main() -> None:
             )
             logger.info("Session clustering service initialized")
 
+    # Initialize session diff service
+    diff_service = None
+    if search_service is not None:
+        vector_db_service = getattr(search_service, 'vector_db_service', None)
+        embedding_service = getattr(search_service, 'embedding_service', None)
+        if vector_db_service is not None and session_registry is not None and embedding_service is not None:
+            diff_service = SessionDiffService(
+                vector_db_service=vector_db_service,
+                session_registry=session_registry,
+                embedding_service=embedding_service
+            )
+            logger.info("Session diff service initialized")
+
     # Create and run server
     server = create_server(
         search_service=search_service,
@@ -1645,7 +1874,8 @@ def main() -> None:
         preference_service=preference_service,
         tag_service=tag_service,
         duplicate_service=duplicate_service,
-        clustering_service=clustering_service
+        clustering_service=clustering_service,
+        diff_service=diff_service
     )
     server.run()
 

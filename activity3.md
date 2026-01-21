@@ -99,11 +99,25 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 
 ---
 
-## Remaining (3/14)
+**Automatic Topic Clustering** ✅ 2026-01-21
+- SessionClusteringService with k-means clustering on session embeddings
+- Session-level embeddings computed by averaging chunk embeddings (normalized)
+- Automatic label generation from tags/projects with fallback
+- MCP tools: cluster-sessions, get-session-clusters, get-cluster-sessions
+- Quality metrics using silhouette score (excellent > 0.5, good > 0.25)
+- Persistent storage at ~/.smart-fork/clusters.json with atomic writes
+- Thread-safe operations with locks
+- Configurable cluster count (default: 10), auto-adjusts for available data
+- Minimum chunk threshold (default: 3) for quality
+- Tests: 27/27 unit tests passing, 10 integration tests created
+- Handles edge cases: empty DB, too few sessions, identical embeddings
+
+---
+
+## Remaining (2/14)
 
 ### P2 (0 remaining)
 
-### P3 (3 remaining)
-- Automatic topic clustering
+### P3 (2 remaining)
 - Session diff tool
 - Session archiving
