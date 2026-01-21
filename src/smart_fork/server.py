@@ -171,7 +171,8 @@ class MCPServer:
 def format_search_results_with_selection(
     query: str,
     results: List[Any],
-    claude_dir: Optional[str] = None
+    claude_dir: Optional[str] = None,
+    session_registry: Optional[Any] = None
 ) -> str:
     """
     Format search results with interactive selection UI.
@@ -180,6 +181,7 @@ def format_search_results_with_selection(
         query: Search query
         results: List of search results
         claude_dir: Optional path to Claude directory (for ForkGenerator)
+        session_registry: Optional SessionRegistry for database stats
 
     Returns:
         Formatted selection prompt
@@ -189,17 +191,38 @@ def format_search_results_with_selection(
     selection_ui = SelectionUI(fork_generator=fork_generator)
 
     if not results:
+        # Get database stats if available
+        stats_info = ""
+        setup_command = "python -m smart_fork.initial_setup"
+
+        if session_registry:
+            try:
+                stats = session_registry.get_stats()
+                total_sessions = stats.get('total_sessions', 0)
+                if total_sessions == 0:
+                    stats_info = f"\n⚠️  Database Status: Empty (0 sessions indexed)\n"
+                else:
+                    stats_info = f"\n📊 Database Status: {total_sessions} sessions indexed\n"
+            except Exception:
+                pass
+
         # Show no results message with options to refine or start fresh
         return f"""Fork Detection - No Results Found
 
 Your query: {query}
-
+{stats_info}
 No relevant sessions were found in the database.
 
 This could mean:
 - The database is empty or not yet indexed
 - Your query doesn't match any existing sessions
 - Try rephrasing your query with different keywords
+
+💡 Suggested Actions:
+1. If database is empty, run: {setup_command}
+2. Try broader search terms (e.g., "authentication" instead of "OAuth JWT middleware")
+3. Search for technologies used (e.g., "React", "FastAPI", "TypeScript")
+4. Search for problem types (e.g., "bug fix", "performance", "testing")
 
 Options:
 1. ❌ None of these - start fresh
@@ -215,7 +238,8 @@ Tip: The system searches through all your past Claude Code sessions to find rele
 
 def create_fork_detect_handler(
     search_service: Optional[SearchService],
-    claude_dir: Optional[str] = None
+    claude_dir: Optional[str] = None,
+    session_registry: Optional[Any] = None
 ):
     """
     Create the fork-detect handler with access to search service.
@@ -223,6 +247,7 @@ def create_fork_detect_handler(
     Args:
         search_service: SearchService instance for performing searches
         claude_dir: Optional path to Claude directory (for ForkGenerator)
+        session_registry: Optional SessionRegistry for database stats
     """
     def fork_detect_handler(arguments: Dict[str, Any]) -> str:
         """Handler for /fork-detect tool."""
@@ -232,16 +257,25 @@ def create_fork_detect_handler(
             return "Error: Please provide a query describing what you want to do."
 
         if search_service is None:
+            setup_command = "python -m smart_fork.initial_setup"
             return f"""Fork Detection (Service Not Initialized)
 
 Your query: {query}
 
-The search service is not yet initialized. This could mean:
-- The vector database is not set up
-- Dependencies are not installed
-- The server needs to be restarted
+⚠️  The search service is not yet initialized.
 
-Please ensure all dependencies are installed and the database is initialized.
+Common Causes:
+- Vector database is not set up (needs initial indexing)
+- Required dependencies are not installed
+- Database files are corrupted or missing
+
+💡 Suggested Actions:
+1. Run initial setup to index your sessions: {setup_command}
+2. Check that dependencies are installed: pip install -e .
+3. Verify database files exist: ~/.smart-fork/chroma-db/
+4. Check logs for specific errors
+
+Need help? See: README.md > Troubleshooting
 """
 
         try:
@@ -253,22 +287,51 @@ Please ensure all dependencies are installed and the database is initialized.
             formatted_output = format_search_results_with_selection(
                 query,
                 results,
-                claude_dir=claude_dir
+                claude_dir=claude_dir,
+                session_registry=session_registry
             )
             logger.info(f"Returned {len(results)} results for query with selection UI")
 
             return formatted_output
 
-        except Exception as e:
-            logger.error(f"Error in fork-detect handler: {e}", exc_info=True)
-            return f"""Fork Detection - Error
+        except TimeoutError as e:
+            logger.warning(f"Search timeout for query: {query}")
+            return f"""Fork Detection - Search Timeout
 
 Your query: {query}
 
-An error occurred while searching:
+⏱️  The search operation timed out.
+
+This usually happens when:
+- The database is very large (>10,000 sessions)
+- The query is too complex or ambiguous
+- System resources are constrained
+
+💡 Suggested Actions:
+1. Try a simpler, more specific query
+2. Use exact technology names (e.g., "React useState hook" not "state management")
+3. Search for specific file types or patterns
+4. Check system resources (CPU, memory)
+
+The search was stopped to prevent hanging. Try refining your query.
+"""
+        except Exception as e:
+            logger.error(f"Error in fork-detect handler: {e}", exc_info=True)
+            error_type = type(e).__name__
+            return f"""Fork Detection - Error ({error_type})
+
+Your query: {query}
+
+❌ An error occurred while searching:
 {str(e)}
 
-Please check the logs for more details.
+💡 Suggested Actions:
+1. Check the server logs for detailed error information
+2. Verify the database is not corrupted: ls ~/.smart-fork/chroma-db/
+3. Try restarting the MCP server
+4. If the error persists, try re-running initial setup
+
+Need help? See: README.md > Troubleshooting
 """
 
     return fork_detect_handler
@@ -340,10 +403,70 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
         return None, None
 
 
+def create_session_preview_handler(
+    search_service: Optional[SearchService],
+    claude_dir: Optional[str] = None
+):
+    """
+    Create the get-session-preview handler.
+
+    Args:
+        search_service: SearchService instance for accessing session data
+        claude_dir: Optional path to Claude directory
+    """
+    def session_preview_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for get-session-preview tool."""
+        session_id = arguments.get("session_id", "")
+        length = arguments.get("length", 500)
+
+        if not session_id:
+            return "Error: Please provide a session_id."
+
+        if search_service is None:
+            return "Error: Search service is not initialized. Run initial setup first."
+
+        try:
+            preview_data = search_service.get_session_preview(
+                session_id,
+                length,
+                claude_dir=claude_dir
+            )
+
+            if preview_data is None:
+                return f"Error: Session '{session_id}' not found or could not be read."
+
+            # Format the preview response
+            date_info = ""
+            if preview_data.get('date_range'):
+                date_range = preview_data['date_range']
+                date_info = f"\nDate Range: {date_range.get('start', 'Unknown')} to {date_range.get('end', 'Unknown')}"
+
+            message_count = preview_data.get('message_count', 0)
+            preview_text = preview_data.get('preview', '')
+
+            return f"""Session Preview: {session_id}
+
+Messages: {message_count}{date_info}
+
+Preview:
+{preview_text}
+
+---
+Use this information to decide if you want to fork from this session.
+"""
+
+        except Exception as e:
+            logger.error(f"Error in session-preview handler: {e}", exc_info=True)
+            return f"Error: Failed to get session preview: {str(e)}"
+
+    return session_preview_handler
+
+
 def create_server(
     search_service: Optional[SearchService] = None,
     background_indexer: Optional[BackgroundIndexer] = None,
-    claude_dir: Optional[str] = None
+    claude_dir: Optional[str] = None,
+    session_registry: Optional[Any] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -352,6 +475,7 @@ def create_server(
         search_service: Optional SearchService instance
         background_indexer: Optional BackgroundIndexer instance
         claude_dir: Optional path to Claude directory (for ForkGenerator)
+        session_registry: Optional SessionRegistry for database stats
     """
     server = MCPServer(
         search_service=search_service,
@@ -372,7 +496,33 @@ def create_server(
             },
             "required": ["query"]
         },
-        handler=create_fork_detect_handler(search_service, claude_dir=claude_dir)
+        handler=create_fork_detect_handler(
+            search_service,
+            claude_dir=claude_dir,
+            session_registry=session_registry
+        )
+    )
+
+    # Register get-session-preview tool
+    server.register_tool(
+        name="get-session-preview",
+        description="Get a preview of a session's content before forking",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID to preview"
+                },
+                "length": {
+                    "type": "integer",
+                    "description": "Maximum preview length in characters (default: 500)",
+                    "default": 500
+                }
+            },
+            "required": ["session_id"]
+        },
+        handler=create_session_preview_handler(search_service, claude_dir=claude_dir)
     )
 
     return server
@@ -410,11 +560,17 @@ def main() -> None:
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
+    # Get session_registry from search_service if available
+    session_registry = None
+    if search_service is not None:
+        session_registry = getattr(search_service, 'session_registry', None)
+
     # Create and run server
     server = create_server(
         search_service=search_service,
         background_indexer=background_indexer,
-        claude_dir=claude_dir
+        claude_dir=claude_dir,
+        session_registry=session_registry
     )
     server.run()
 

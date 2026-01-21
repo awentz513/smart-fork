@@ -259,6 +259,95 @@ class SearchService:
 
         return preview
 
+    def get_session_preview(
+        self,
+        session_id: str,
+        length: int = 500,
+        claude_dir: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a preview of a session's content.
+
+        Args:
+            session_id: ID of the session to preview
+            length: Maximum number of characters to return (default 500)
+            claude_dir: Optional Claude directory path (default: ~/.claude)
+
+        Returns:
+            Dictionary containing:
+            - session_id: The session identifier
+            - preview: First N characters of concatenated message content
+            - message_count: Total number of messages in the session
+            - date_range: Dict with 'start' and 'end' timestamps
+            - metadata: Session metadata if available
+
+            Returns None if session not found or cannot be read.
+        """
+        # Get session metadata from registry
+        metadata = self.session_registry.get_session(session_id)
+        if not metadata:
+            logger.warning(f"Session not found in registry: {session_id}")
+            return None
+
+        # Find session file path
+        from .fork_generator import ForkGenerator
+        from .session_parser import SessionParser
+
+        fork_gen = ForkGenerator(claude_sessions_dir=claude_dir or "~/.claude")
+        file_path = fork_gen.find_session_path(session_id, project=metadata.project)
+
+        if not file_path:
+            logger.warning(f"Session file path not found for: {session_id}")
+            return None
+
+        # Parse session file to get full content
+        parser = SessionParser(strict=False)
+
+        try:
+            session_data = parser.parse_file(file_path)
+        except Exception as e:
+            logger.error(f"Failed to parse session file {file_path}: {e}")
+            return None
+
+        if not session_data.messages:
+            logger.warning(f"Session {session_id} has no messages")
+            return None
+
+        # Concatenate message content for preview
+        message_texts = []
+        for msg in session_data.messages:
+            # Format: "role: content"
+            message_texts.append(f"{msg.role}: {msg.content}")
+
+        full_text = "\n\n".join(message_texts)
+
+        # Truncate to requested length
+        preview = full_text[:length]
+        if len(full_text) > length:
+            preview = preview.rsplit(' ', 1)[0] + "..."
+
+        # Get date range
+        timestamps = [msg.timestamp for msg in session_data.messages if msg.timestamp]
+        date_range = None
+        if timestamps:
+            date_range = {
+                'start': min(timestamps).isoformat(),
+                'end': max(timestamps).isoformat()
+            }
+        elif session_data.created_at and session_data.last_modified:
+            date_range = {
+                'start': session_data.created_at.isoformat(),
+                'end': session_data.last_modified.isoformat()
+            }
+
+        return {
+            'session_id': session_id,
+            'preview': preview,
+            'message_count': len(session_data.messages),
+            'date_range': date_range,
+            'metadata': metadata.to_dict() if metadata else None
+        }
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get search service statistics.

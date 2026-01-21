@@ -76,6 +76,7 @@ class TestSetupState:
         state = SetupState(
             total_files=100,
             processed_files=["file1.jsonl", "file2.jsonl"],
+            timed_out_files=[],
             started_at=time.time(),
             last_updated=time.time()
         )
@@ -83,6 +84,7 @@ class TestSetupState:
         assert state.total_files == 100
         assert len(state.processed_files) == 2
         assert "file1.jsonl" in state.processed_files
+        assert state.timed_out_files == []
 
     def test_setup_state_to_dict(self):
         """Test converting SetupState to dictionary."""
@@ -90,6 +92,7 @@ class TestSetupState:
         state = SetupState(
             total_files=50,
             processed_files=["file1.jsonl"],
+            timed_out_files=["file2.jsonl"],
             started_at=started,
             last_updated=started
         )
@@ -97,6 +100,7 @@ class TestSetupState:
         data = state.to_dict()
         assert data['total_files'] == 50
         assert data['processed_files'] == ["file1.jsonl"]
+        assert data['timed_out_files'] == ["file2.jsonl"]
         assert data['started_at'] == started
         assert data['last_updated'] == started
 
@@ -121,6 +125,7 @@ class TestSetupState:
         original = SetupState(
             total_files=100,
             processed_files=["a.jsonl", "b.jsonl", "c.jsonl"],
+            timed_out_files=["d.jsonl"],
             started_at=started,
             last_updated=started + 10
         )
@@ -130,6 +135,7 @@ class TestSetupState:
 
         assert restored.total_files == original.total_files
         assert restored.processed_files == original.processed_files
+        assert restored.timed_out_files == original.timed_out_files
         assert restored.started_at == original.started_at
         assert restored.last_updated == original.last_updated
 
@@ -287,6 +293,7 @@ class TestInitialSetupState:
         state = SetupState(
             total_files=100,
             processed_files=["file1.jsonl", "file2.jsonl"],
+            timed_out_files=["file3.jsonl"],
             started_at=started,
             last_updated=started + 10
         )
@@ -300,6 +307,7 @@ class TestInitialSetupState:
         assert loaded is not None
         assert loaded.total_files == 100
         assert len(loaded.processed_files) == 2
+        assert loaded.timed_out_files == ["file3.jsonl"]
         assert loaded.started_at == started
 
     def test_load_state_missing_file(self, tmp_path):

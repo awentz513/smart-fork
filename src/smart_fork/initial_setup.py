@@ -9,9 +9,11 @@ import os
 import time
 import json
 import logging
+import signal
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass, asdict
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from .session_parser import SessionParser
 from .chunking_service import ChunkingService
@@ -119,6 +121,7 @@ class SetupState:
     """Persistent state for resuming interrupted setup."""
     total_files: int
     processed_files: List[str]
+    timed_out_files: List[str]
     started_at: float
     last_updated: float
 
@@ -129,6 +132,9 @@ class SetupState:
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'SetupState':
         """Create from dictionary."""
+        # Handle old state files without timed_out_files
+        if 'timed_out_files' not in data:
+            data['timed_out_files'] = []
         return SetupState(**data)
 
 
@@ -149,7 +155,8 @@ class InitialSetup:
         storage_dir: str = "~/.smart-fork",
         claude_dir: str = "~/.claude",
         progress_callback: Optional[Callable[[SetupProgress], None]] = None,
-        show_progress: bool = True
+        show_progress: bool = True,
+        timeout_per_session: float = 30.0
     ):
         """
         Initialize the setup manager.
@@ -159,9 +166,11 @@ class InitialSetup:
             claude_dir: Directory containing Claude Code sessions
             progress_callback: Optional callback for progress updates
             show_progress: Whether to show default console progress (default: True)
+            timeout_per_session: Timeout in seconds for processing each session (default: 30.0)
         """
         self.storage_dir = Path(storage_dir).expanduser()
         self.claude_dir = Path(claude_dir).expanduser()
+        self.timeout_per_session = timeout_per_session
 
         # Use default progress callback if none provided and show_progress is True
         if progress_callback is None and show_progress:
@@ -282,6 +291,50 @@ class InitialSetup:
         self.session_registry = SessionRegistry(
             registry_path=str(self.storage_dir / "session-registry.json")
         )
+
+    def _process_session_file_with_timeout(
+        self,
+        file_path: Path,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Process a single session file with timeout.
+
+        Args:
+            file_path: Path to session file
+            session_id: Optional session ID (derived from filename if not provided)
+
+        Returns:
+            Dictionary with processing results
+        """
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self._process_session_file, file_path, session_id)
+                return future.result(timeout=self.timeout_per_session)
+        except FuturesTimeoutError:
+            session_id = session_id or file_path.stem
+            file_size = file_path.stat().st_size
+            logger.warning(
+                f"Session {session_id} timed out after {self.timeout_per_session}s "
+                f"(file size: {_format_bytes(file_size)})"
+            )
+            return {
+                'session_id': session_id,
+                'success': False,
+                'error': f'Timeout after {self.timeout_per_session}s',
+                'chunks': 0,
+                'timed_out': True
+            }
+        except Exception as e:
+            session_id = session_id or file_path.stem
+            logger.error(f"Unexpected error processing session {session_id}: {e}")
+            return {
+                'session_id': session_id,
+                'success': False,
+                'error': str(e),
+                'chunks': 0,
+                'timed_out': False
+            }
 
     def _process_session_file(
         self,
@@ -485,12 +538,13 @@ class InitialSetup:
         self._interrupted = True
         logger.info("Setup interrupted by user")
 
-    def run_setup(self, resume: bool = False) -> Dict[str, Any]:
+    def run_setup(self, resume: bool = False, retry_timeouts: bool = False) -> Dict[str, Any]:
         """
         Run the initial setup process.
 
         Args:
             resume: Whether to resume from previous state
+            retry_timeouts: Whether to retry timed-out sessions from previous run
 
         Returns:
             Dictionary with setup results
@@ -505,6 +559,7 @@ class InitialSetup:
                 'files_processed': 0,
                 'total_chunks': 0,
                 'errors': [],
+                'timeouts': [],
                 'message': 'No session files found'
             }
 
@@ -518,9 +573,21 @@ class InitialSetup:
             state = SetupState(
                 total_files=len(all_files),
                 processed_files=[],
+                timed_out_files=[],
                 started_at=time.time(),
                 last_updated=time.time()
             )
+
+        # If retry_timeouts flag is set, process timed-out files
+        if retry_timeouts and state.timed_out_files:
+            logger.info(f"Retrying {len(state.timed_out_files)} timed-out sessions...")
+            # Move timed-out files back to pending (remove from both lists)
+            files_to_retry = state.timed_out_files.copy()
+            state.timed_out_files = []
+            # Remove from processed files so they'll be reprocessed
+            for file_str in files_to_retry:
+                if file_str in state.processed_files:
+                    state.processed_files.remove(file_str)
 
         # Initialize services
         self._initialize_services()
@@ -529,6 +596,7 @@ class InitialSetup:
         start_time = state.started_at
         total_chunks = 0
         errors = []
+        timeouts = []
 
         for file_path in all_files:
             # Check if already processed
@@ -545,6 +613,7 @@ class InitialSetup:
                     'files_processed': len(state.processed_files),
                     'total_chunks': total_chunks,
                     'errors': errors,
+                    'timeouts': timeouts,
                     'interrupted': True,
                     'message': 'Setup interrupted, can be resumed later'
                 }
@@ -558,13 +627,23 @@ class InitialSetup:
                 start_time=start_time
             )
 
-            # Process file
-            result = self._process_session_file(file_path)
+            # Process file with timeout
+            result = self._process_session_file_with_timeout(file_path)
 
             if result['success']:
                 total_chunks += result['chunks']
                 state.processed_files.append(file_str)
+            elif result.get('timed_out', False):
+                # Track timed-out files separately
+                state.timed_out_files.append(file_str)
+                state.processed_files.append(file_str)  # Mark as processed to skip in this run
+                timeouts.append({
+                    'file': file_path.name,
+                    'error': result.get('error', 'Unknown timeout'),
+                    'file_size': _format_bytes(file_path.stat().st_size)
+                })
             else:
+                # Regular error
                 errors.append({
                     'file': file_path.name,
                     'error': result.get('error', 'Unknown error')
@@ -587,10 +666,20 @@ class InitialSetup:
             is_complete=True
         )
 
-        return {
+        result = {
             'success': True,
-            'files_processed': len(state.processed_files),
+            'files_processed': len(state.processed_files) - len(timeouts),
             'total_chunks': total_chunks,
             'errors': errors,
+            'timeouts': timeouts,
             'elapsed_time': time.time() - start_time
         }
+
+        # Add helpful message about timeouts if any occurred
+        if timeouts:
+            result['message'] = (
+                f"{len(timeouts)} session(s) timed out. "
+                f"Run with retry_timeouts=True to retry them with a longer timeout."
+            )
+
+        return result
