@@ -79,3 +79,4 @@ ralph_log*.txt
 vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/*.vsix
+package-lock.json
