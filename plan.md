@@ -1,3 +1,29 @@
+<!--
+  plan.md - Task tracking for the Smart Fork Detection project
+
+  STRUCTURE:
+  - Each task has: category, description, steps array, and passes boolean
+  - passes: false = task not yet completed
+  - passes: true  = task completed and verified
+
+  USAGE:
+  - The ralph.sh automation loop reads this file via PROMPT.md
+  - Claude picks the first task where passes is false
+  - After completing a task, Claude updates passes to true
+
+  CATEGORIES:
+  - setup: Project initialization and configuration
+  - feature: Core functionality implementation
+  - testing: Test suites (unit, integration, e2e, performance)
+  - documentation: User docs and guides
+  - deployment: Packaging and distribution
+
+  CHANGE LOG:
+  - 2026-01-20: All 23 tasks completed via ralph.sh automation loop
+  - 2026-01-20: Task 17 was initially skipped due to timeout bug in PROMPT.md
+                (fixed by removing blocking server start instruction)
+-->
+
 # Smart Fork Detection - Project Plan
 
 ## Overview
@@ -9,6 +35,14 @@ An MCP server for Claude Code that enables semantic search of past session trans
 
 ## Task List
 
+<!--
+  Task list is stored as JSON for easy programmatic parsing.
+  Each task object contains:
+  - category: grouping for the task type
+  - description: human-readable task name
+  - steps: array of specific implementation requirements
+  - passes: boolean indicating completion status
+-->
 ```json
 [
   {

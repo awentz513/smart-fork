@@ -1,6 +1,27 @@
+<!--
+  activity.md - Progress log for the Smart Fork Detection project build
+
+  PURPOSE:
+  - Tracks what was accomplished in each task iteration
+  - Provides context for the next iteration of the ralph.sh loop
+  - Serves as a human-readable audit trail of the build process
+
+  USAGE:
+  - Claude reads this file first to understand recent progress
+  - After completing a task, Claude appends a dated entry
+  - The "Current Status" section is updated to reflect progress
+
+  CHANGE LOG:
+  - 2026-01-20: Project initialized with 23 tasks
+  - 2026-01-20: All tasks completed via ralph.sh automation loop
+  - Note: Task 17 entry may be missing from the log due to timeout during
+          that iteration, but the task was completed and committed separately
+-->
+
 # Project Build - Activity Log
 
 ## Current Status
+<!-- Updated after each task completion -->
 **Last Updated:** 2026-01-20 23:45
 **Tasks Completed:** 23/23
 **Current Task:** All tasks complete! ✅
@@ -10,7 +31,9 @@
 ## Session Log
 
 <!--
-After completing each task, add an entry below in this format:
+  ENTRY FORMAT:
+  Each task completion should be logged with the following structure.
+  This helps the next iteration understand what was done and what's next.
 
 ### YYYY-MM-DD HH:MM
 **Completed:**
