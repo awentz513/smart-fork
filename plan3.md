@@ -150,7 +150,7 @@ These features add meaningful capabilities with moderate implementation complexi
       "Enable searching by tag",
       "Auto-suggest tags based on content"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "performance",

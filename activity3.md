@@ -4,7 +4,7 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 
 ---
 
-## Completed (6/14)
+## Completed (7/14)
 
 ### P1 Tasks (4/4 Complete)
 
@@ -28,7 +28,7 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 - Persistent at ~/.smart-fork/embedding_cache/
 - Tests: 50/50 passing
 
-### P2 Tasks (2/5 Complete)
+### P2 Tasks (3/5 Complete)
 
 **Preference Learning** ✅ 2026-01-21
 - PreferenceService tracks user selections
@@ -44,12 +44,19 @@ Progress on Phase 3 feature development. Full details in verification/phase3-*.t
 - Integrated into SearchService and MCP fork-detect tool
 - Tests: 40/40 passing
 
+**Session Tagging Capability** ✅ 2026-01-21
+- SessionTagService for tag management (add, remove, list, find, suggest)
+- MCP tools: add-session-tag, remove-session-tag, list-session-tags
+- Tag-based filtering in fork-detect tool (tags parameter)
+- Case-insensitive tags with normalization and validation
+- Tag statistics and suggestions for untagged sessions
+- Tests: 57/57 passing (30 unit + 27 integration)
+
 ---
 
-## Remaining (8/14)
+## Remaining (7/14)
 
-### P2 (3 remaining)
-- Session tagging capability
+### P2 (2 remaining)
 - Multi-threaded indexing
 - Duplicate session detection
 

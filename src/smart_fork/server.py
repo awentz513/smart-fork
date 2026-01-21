@@ -23,6 +23,7 @@ from .cache_service import CacheService
 from .config_manager import ConfigManager
 from .fork_history_service import ForkHistoryService
 from .preference_service import PreferenceService
+from .session_tag_service import SessionTagService
 
 # Configure logging
 logging.basicConfig(
@@ -308,6 +309,7 @@ def create_fork_detect_handler(
         time_range = arguments.get("time_range")
         start_date = arguments.get("start_date")
         end_date = arguments.get("end_date")
+        tags = arguments.get("tags")
 
         if not query:
             return "Error: Please provide a query describing what you want to do."
@@ -373,7 +375,13 @@ Need help? See: README.md > Troubleshooting
             elif start_date or end_date:
                 temporal_desc = f", time: {start_date or ''} to {end_date or ''}"
 
-            logger.info(f"Processing fork-detect query: {query} (scope: {project_display}{temporal_desc})")
+            # Add tags info to description if provided
+            tags_desc = ""
+            if tags:
+                tags_list = [t.strip() for t in tags.split(",")] if isinstance(tags, str) else tags
+                tags_desc = f", tags: {', '.join(tags_list)}"
+
+            logger.info(f"Processing fork-detect query: {query} (scope: {project_display}{temporal_desc}{tags_desc})")
             results = search_service.search(
                 query,
                 top_n=5,
@@ -382,6 +390,26 @@ Need help? See: README.md > Troubleshooting
                 start_date=start_date,
                 end_date=end_date
             )
+
+            # Filter by tags if provided
+            if tags:
+                # Parse tags (can be comma-separated string or list)
+                if isinstance(tags, str):
+                    tags_list = [t.strip().lower() for t in tags.split(",")]
+                else:
+                    tags_list = [t.strip().lower() for t in tags]
+
+                # Filter results to only include sessions with matching tags
+                filtered_results = []
+                for result in results:
+                    if result.metadata and result.metadata.tags:
+                        session_tags = [t.lower() for t in result.metadata.tags]
+                        # Session must have at least one matching tag
+                        if any(tag in session_tags for tag in tags_list):
+                            filtered_results.append(result)
+
+                results = filtered_results
+                logger.info(f"Filtered to {len(results)} results matching tags: {tags_list}")
 
             # Format and return results with selection UI (including fork commands)
             formatted_output = format_search_results_with_selection(
@@ -715,13 +743,197 @@ or fork from them again using the generated fork commands.
     return fork_history_handler
 
 
+def create_add_tag_handler(tag_service: Optional[SessionTagService]):
+    """
+    Create the add-session-tag handler.
+
+    Args:
+        tag_service: SessionTagService instance for managing tags
+    """
+    def add_tag_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for add-session-tag tool."""
+        session_id = arguments.get("session_id", "")
+        tag = arguments.get("tag", "")
+
+        if not session_id:
+            return "Error: Please provide a session_id."
+
+        if not tag:
+            return "Error: Please provide a tag."
+
+        if tag_service is None:
+            return "Error: Tag service is not initialized."
+
+        try:
+            success = tag_service.add_tag(session_id, tag)
+
+            if success:
+                # Get current tags to show updated list
+                current_tags = tag_service.get_session_tags(session_id)
+                tags_display = ", ".join(current_tags) if current_tags else "none"
+                return f"Tag '{tag}' added successfully to session {session_id}.\nCurrent tags: {tags_display}"
+            else:
+                # Check if session exists
+                if tag_service.get_session_tags(session_id) is None:
+                    return f"Error: Session '{session_id}' not found."
+                else:
+                    return f"Tag '{tag}' is already on session {session_id}."
+
+        except Exception as e:
+            logger.error(f"Error adding tag: {e}", exc_info=True)
+            return f"Error: Failed to add tag: {str(e)}"
+
+    return add_tag_handler
+
+
+def create_remove_tag_handler(tag_service: Optional[SessionTagService]):
+    """
+    Create the remove-session-tag handler.
+
+    Args:
+        tag_service: SessionTagService instance for managing tags
+    """
+    def remove_tag_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for remove-session-tag tool."""
+        session_id = arguments.get("session_id", "")
+        tag = arguments.get("tag", "")
+
+        if not session_id:
+            return "Error: Please provide a session_id."
+
+        if not tag:
+            return "Error: Please provide a tag."
+
+        if tag_service is None:
+            return "Error: Tag service is not initialized."
+
+        try:
+            success = tag_service.remove_tag(session_id, tag)
+
+            if success:
+                # Get current tags to show updated list
+                current_tags = tag_service.get_session_tags(session_id)
+                tags_display = ", ".join(current_tags) if current_tags else "none"
+                return f"Tag '{tag}' removed successfully from session {session_id}.\nCurrent tags: {tags_display}"
+            else:
+                # Check if session exists
+                if tag_service.get_session_tags(session_id) is None:
+                    return f"Error: Session '{session_id}' not found."
+                else:
+                    return f"Tag '{tag}' not found on session {session_id}."
+
+        except Exception as e:
+            logger.error(f"Error removing tag: {e}", exc_info=True)
+            return f"Error: Failed to remove tag: {str(e)}"
+
+    return remove_tag_handler
+
+
+def create_list_tags_handler(tag_service: Optional[SessionTagService]):
+    """
+    Create the list-session-tags handler.
+
+    Args:
+        tag_service: SessionTagService instance for managing tags
+    """
+    def list_tags_handler(arguments: Dict[str, Any]) -> str:
+        """Handler for list-session-tags tool."""
+        session_id = arguments.get("session_id")
+        show_all = arguments.get("show_all", False)
+
+        if tag_service is None:
+            return "Error: Tag service is not initialized."
+
+        try:
+            if session_id:
+                # List tags for a specific session
+                tags = tag_service.get_session_tags(session_id)
+
+                if tags is None:
+                    return f"Error: Session '{session_id}' not found."
+
+                if not tags:
+                    # Suggest some tags
+                    suggestions = tag_service.suggest_tags(session_id)
+                    if suggestions:
+                        suggestions_display = ", ".join(suggestions)
+                        return f"""Session {session_id} has no tags yet.
+
+Suggested tags (based on common tags in other sessions):
+{suggestions_display}
+
+Use add-session-tag to add tags to this session."""
+                    else:
+                        return f"Session {session_id} has no tags yet. Use add-session-tag to add tags."
+
+                tags_display = ", ".join(tags)
+                return f"Session {session_id} tags: {tags_display}"
+
+            else:
+                # List all tags across all sessions
+                if show_all:
+                    all_tags = tag_service.list_all_tags()
+
+                    if not all_tags:
+                        return """No tags found in the system yet.
+
+Tags help organize and categorize your sessions. Use add-session-tag to start tagging sessions."""
+
+                    output = "All Tags (with usage counts):\n\n"
+                    for tag_info in all_tags:
+                        tag_name = tag_info["tag"]
+                        count = tag_info["count"]
+                        output += f"  {tag_name}: {count} session(s)\n"
+
+                    # Add stats
+                    stats = tag_service.get_stats()
+                    output += f"""
+Statistics:
+  Total sessions: {stats['total_sessions']}
+  Tagged sessions: {stats['tagged_sessions']}
+  Untagged sessions: {stats['untagged_sessions']}
+  Unique tags: {stats['unique_tags']}
+  Avg tags per session: {stats['avg_tags_per_session']:.1f}
+"""
+
+                    return output
+
+                else:
+                    # Just show top tags
+                    stats = tag_service.get_stats()
+                    top_tags = stats.get("top_tags", [])
+
+                    if not top_tags:
+                        return """No tags found in the system yet.
+
+Tags help organize and categorize your sessions. Use add-session-tag to start tagging sessions."""
+
+                    output = "Top Tags:\n\n"
+                    for tag_info in top_tags:
+                        tag_name = tag_info["tag"]
+                        count = tag_info["count"]
+                        output += f"  {tag_name}: {count} session(s)\n"
+
+                    output += f"\nTotal: {stats['unique_tags']} unique tags across {stats['tagged_sessions']} sessions"
+                    output += "\n\nUse list-session-tags with show_all=true to see all tags."
+
+                    return output
+
+        except Exception as e:
+            logger.error(f"Error listing tags: {e}", exc_info=True)
+            return f"Error: Failed to list tags: {str(e)}"
+
+    return list_tags_handler
+
+
 def create_server(
     search_service: Optional[SearchService] = None,
     background_indexer: Optional[BackgroundIndexer] = None,
     claude_dir: Optional[str] = None,
     session_registry: Optional[Any] = None,
     fork_history_service: Optional[ForkHistoryService] = None,
-    preference_service: Optional[PreferenceService] = None
+    preference_service: Optional[PreferenceService] = None,
+    tag_service: Optional[SessionTagService] = None
 ) -> MCPServer:
     """
     Create and configure the MCP server.
@@ -770,6 +982,10 @@ def create_server(
                 "end_date": {
                     "type": "string",
                     "description": "Custom end date for filtering (ISO format: 2026-01-21 or natural language)"
+                },
+                "tags": {
+                    "type": "string",
+                    "description": "Optional comma-separated list of tags to filter results (e.g., 'bug-fix,urgent' or 'react'). Sessions must have at least one matching tag."
                 }
             },
             "required": ["query"]
@@ -846,6 +1062,69 @@ def create_server(
         handler=create_fork_history_handler(fork_history_service)
     )
 
+    # Register add-session-tag tool
+    server.register_tool(
+        name="add-session-tag",
+        description="Add a tag to a session for organization and categorization",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID to tag"
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Tag name (will be normalized to lowercase)"
+                }
+            },
+            "required": ["session_id", "tag"]
+        },
+        handler=create_add_tag_handler(tag_service)
+    )
+
+    # Register remove-session-tag tool
+    server.register_tool(
+        name="remove-session-tag",
+        description="Remove a tag from a session",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID to remove tag from"
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Tag name to remove (case-insensitive)"
+                }
+            },
+            "required": ["session_id", "tag"]
+        },
+        handler=create_remove_tag_handler(tag_service)
+    )
+
+    # Register list-session-tags tool
+    server.register_tool(
+        name="list-session-tags",
+        description="List tags for a session or all tags in the system",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional session ID to list tags for. If not provided, lists all tags."
+                },
+                "show_all": {
+                    "type": "boolean",
+                    "description": "If true, shows all tags with counts. If false, shows top tags only. (default: false)",
+                    "default": False
+                }
+            }
+        },
+        handler=create_list_tags_handler(tag_service)
+    )
+
     return server
 
 
@@ -893,6 +1172,12 @@ def main() -> None:
     if search_service is not None:
         session_registry = getattr(search_service, 'session_registry', None)
 
+    # Initialize session tag service
+    tag_service = None
+    if session_registry is not None:
+        tag_service = SessionTagService(session_registry)
+        logger.info("Session tag service initialized")
+
     # Create and run server
     server = create_server(
         search_service=search_service,
@@ -900,7 +1185,8 @@ def main() -> None:
         claude_dir=claude_dir,
         session_registry=session_registry,
         fork_history_service=fork_history_service,
-        preference_service=preference_service
+        preference_service=preference_service,
+        tag_service=tag_service
     )
     server.run()
 
