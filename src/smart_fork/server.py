@@ -1522,7 +1522,7 @@ def create_server(
                 "include_archive": {
                     "type": "boolean",
                     "description": "Whether to include archived sessions in search results (default: false)",
-                    "default": false
+                    "default": False
                 }
             },
             "required": ["query"]
