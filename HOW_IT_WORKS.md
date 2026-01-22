@@ -75,7 +75,11 @@ You: *spends 10 minutes re-explaining everything*
                               ↓
 ```
 
-## Real Results From YOUR System (Just Now)
+## Real Results From YOUR System (Measured: Jan 21, 2026)
+
+**Query:** "python testing"
+**Time:** 8.1 seconds (cold start)
+**Sessions Found:** 3
 
 ```
 ================================================================================
@@ -87,15 +91,39 @@ Scope: All Projects
 
 Please select one of the following options:
 
-⭐ [RECOMMENDED] Session: 559ab0d3-9fb7-48... (43%)
-   Project: -Users-austinwentzel-Documents-Smart-Fork
-   Date: 2026-01-20 23:47
 
-   Why this scored 43%:
+1. ⭐ [RECOMMENDED] Session: 559ab0d3-9fb7-48... (43%)
+   Project: -Users-austinwentzel-Documents-Smart-Fork
+   Date: 2026-01-20 23:41
+   Preview: "@plan.md @activity.md We are rebuilding the project..."
+
+   Fork Commands (copy & paste):
+   claude --resume 559ab0d3-9fb7-4877-b5ea-8012ec1e74cd --fork-session
+
+
+2. Session: agent-a1e3985... (42%)
+   Project: -Users-austinwentzel-Documents-Smart-Fork
+   Date: 2026-01-21 02:28
+   Preview: "Test that the embedding service works correctly..."
+
+   Fork Commands (copy & paste):
+   claude --resume agent-a1e3985 --fork-session
+
+
+3. Session: 32002543-6d1a-46... (42%)
+   Project: -Users-austinwentzel-Documents-Smart-Fork
+   Date: 2026-01-20 21:53
+   Preview: "@plan.md @activity.md We are rebuilding the project..."
+
+   Fork Commands (copy & paste):
+   claude --resume 32002543-6d1a-46f5-b3ef-3a0621a9df9e --fork-session
+
+   Why these scored 42-43%:
    ✓ Contains "python" and "testing" content
-   ✓ Recent session (< 1 day old = 1.0 recency score)
-   ✓ Multiple matching chunks across the conversation
-   ✓ High semantic similarity to your query
+   ✓ Recent sessions (< 24 hours = high recency score)
+   ✓ Multiple matching chunks across conversations
+   ✓ High semantic similarity to query
+   ✓ All from same project (Smart-Fork development)
 ```
 
 ## What Happens When You Select It
@@ -150,7 +178,7 @@ WITH Smart Fork:
 2. Select session
 3. Continue working
 
-⏱️  Time: 5 seconds
+⏱️  Time: ~8 seconds (including model loading)
 ```
 
 ## System Architecture (What Just Happened)
@@ -192,10 +220,14 @@ Initial Setup:
   • Index 1000 sessions: ~5 minutes
   • Embedding model: Downloads once (~400MB)
 
-Per-Query Performance:
-  • Cold query (no cache): ~200-500ms
-  • Cached query: ~100-150ms
-  • Embedding computation: Cached after first use
+Per-Query Performance (measured with real data):
+  • First query (cold start): ~8 seconds
+    - Includes: server initialization, model loading, embedding computation
+  • Subsequent queries: ~7.6 seconds
+    - Cache reduces time by ~5%
+  • In production (server already running): ~1-2 seconds expected
+    - Model stays loaded in memory
+    - No initialization overhead
 
 Memory Usage:
   • Base: ~500MB (embedding model)
@@ -209,27 +241,34 @@ Database Size:
 ## The Test We Just Ran
 
 ```bash
-$ python3 test_fork_detect.py
+$ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"fork-detect","arguments":{"query":"python testing"}}}' | \
+  /usr/bin/time -p python -m smart_fork.server 2>&1
 
 Testing fork-detect functionality...
 ============================================================
-Test 2: Calling fork-detect with a query...
-(This will take a moment as it loads the embedding model)
 
 ✅ fork-detect returned results!
 
 Response shows:
   • Server initialized all services ✓
-  • Loaded embedding model ✓
+  • Loaded embedding model (nomic-embed-text-v1.5) ✓
+  • Computed query embedding ✓
   • Searched vector database ✓
-  • Found 1 relevant session (43% match) ✓
-  • Formatted results with project, date, score ✓
+  • Found 3 relevant sessions (43%, 42%, 42% match) ✓
+  • Applied composite scoring (similarity + recency + chunks) ✓
+  • Formatted results with project, date, score, preview ✓
+
+Timing:
+  real 7.55
+  user 4.68
+  sys 0.86
 
 ============================================================
 
 ✅ fork-detect is working!
 
 The core Smart Fork functionality is operational.
+Search time: ~8 seconds including full server initialization.
 You can now search through your Claude Code sessions.
 ```
 
