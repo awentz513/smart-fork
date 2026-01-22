@@ -82,7 +82,7 @@ Smart Fork Detection solves the "context loss" problem in AI-assisted developmen
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/austinwentzel/Smart-Fork.git
+git clone https://github.com/recursive-vibe/smart-fork.git
 cd Smart-Fork
 ```
 
@@ -915,6 +915,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Troubleshooting?** Check the [Troubleshooting](#troubleshooting) section above or [open an issue](https://github.com/austinwentzel/Smart-Fork/issues).
+**Troubleshooting?** Check the [Troubleshooting](#troubleshooting) section above or [open an issue](https://github.com/recursive-vibe/smart-fork/issues).
 
-**Questions?** Join our [discussions](https://github.com/austinwentzel/Smart-Fork/discussions) or reach out on GitHub.
+**Questions?** Join our [discussions](https://github.com/recursive-vibe/smart-fork/discussions) or reach out on GitHub.

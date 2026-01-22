@@ -10,7 +10,7 @@ Please be respectful and constructive in all interactions. We're building a welc
 
 ### 1. Report Bugs
 
-If you find a bug, please [open an issue](https://github.com/austinwentzel/Smart-Fork/issues) with:
+If you find a bug, please [open an issue](https://github.com/recursive-vibe/smart-fork/issues) with:
 - A clear, descriptive title
 - Steps to reproduce the bug
 - Expected vs actual behavior
@@ -19,7 +19,7 @@ If you find a bug, please [open an issue](https://github.com/austinwentzel/Smart
 
 ### 2. Suggest Features
 
-Have an idea? [Open a feature request](https://github.com/austinwentzel/Smart-Fork/issues) describing:
+Have an idea? [Open a feature request](https://github.com/recursive-vibe/smart-fork/issues) describing:
 - The problem you're trying to solve
 - Your proposed solution
 - Alternative approaches you considered
@@ -93,7 +93,7 @@ Documentation improvements are always welcome:
 
 ### 5. Help Others
 
-- Answer questions in [Discussions](https://github.com/austinwentzel/Smart-Fork/discussions)
+- Answer questions in [Discussions](https://github.com/recursive-vibe/smart-fork/discussions)
 - Help triage and reproduce issues
 - Review pull requests
 - Share your Smart Fork setup and tips
@@ -145,8 +145,8 @@ git push origin feature/my-feature
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/austinwentzel/Smart-Fork/discussions) for general questions
-- Use [Issues](https://github.com/austinwentzel/Smart-Fork/issues) for bugs and features
+- Open a [Discussion](https://github.com/recursive-vibe/smart-fork/discussions) for general questions
+- Use [Issues](https://github.com/recursive-vibe/smart-fork/issues) for bugs and features
 - Tag maintainers in PRs if you need review
 
 ## License
