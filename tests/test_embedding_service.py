@@ -82,11 +82,15 @@ class TestEmbeddingService:
         # Should be between min and max
         assert service.min_batch_size < batch_size < service.max_batch_size
 
+    @patch("smart_fork.embedding_service.torch")
     @patch("smart_fork.embedding_service.SentenceTransformer")
-    def test_load_model(self, mock_transformer):
+    def test_load_model(self, mock_transformer, mock_torch):
         """Test model loading."""
         mock_model = MagicMock()
         mock_transformer.return_value = mock_model
+        # Mock torch to simulate no GPU available
+        mock_torch.backends.mps.is_available.return_value = False
+        mock_torch.cuda.is_available.return_value = False
 
         service = EmbeddingService(use_cache=False)
         service.load_model()
@@ -94,7 +98,70 @@ class TestEmbeddingService:
         assert service.model == mock_model
         mock_transformer.assert_called_once_with(
             "nomic-ai/nomic-embed-text-v1.5",
-            trust_remote_code=True
+            trust_remote_code=True,
+            device="cpu"
+        )
+
+    @patch("smart_fork.embedding_service.torch")
+    @patch("smart_fork.embedding_service.SentenceTransformer")
+    def test_load_model_with_mps(self, mock_transformer, mock_torch):
+        """Test model loading with MPS (Metal) acceleration."""
+        mock_model = MagicMock()
+        mock_transformer.return_value = mock_model
+        # Mock torch to simulate MPS available
+        mock_torch.backends.mps.is_available.return_value = True
+        mock_torch.cuda.is_available.return_value = False
+
+        service = EmbeddingService(use_cache=False, use_mps=True)
+        service.load_model()
+
+        assert service.device == "mps"
+        mock_transformer.assert_called_once_with(
+            "nomic-ai/nomic-embed-text-v1.5",
+            trust_remote_code=True,
+            device="mps"
+        )
+
+    @patch("smart_fork.embedding_service.torch")
+    @patch("smart_fork.embedding_service.SentenceTransformer")
+    def test_load_model_with_cuda(self, mock_transformer, mock_torch):
+        """Test model loading with CUDA acceleration."""
+        mock_model = MagicMock()
+        mock_transformer.return_value = mock_model
+        # Mock torch to simulate CUDA available but not MPS
+        mock_torch.backends.mps.is_available.return_value = False
+        mock_torch.cuda.is_available.return_value = True
+
+        service = EmbeddingService(use_cache=False)
+        service.load_model()
+
+        assert service.device == "cuda"
+        mock_transformer.assert_called_once_with(
+            "nomic-ai/nomic-embed-text-v1.5",
+            trust_remote_code=True,
+            device="cuda"
+        )
+
+    @patch("smart_fork.embedding_service.torch")
+    @patch("smart_fork.embedding_service.SentenceTransformer")
+    def test_load_model_mps_disabled(self, mock_transformer, mock_torch):
+        """Test model loading with MPS explicitly disabled."""
+        mock_model = MagicMock()
+        mock_transformer.return_value = mock_model
+        # Mock torch to simulate MPS available
+        mock_torch.backends.mps.is_available.return_value = True
+        mock_torch.cuda.is_available.return_value = False
+
+        # Explicitly disable MPS
+        service = EmbeddingService(use_cache=False, use_mps=False)
+        service.load_model()
+
+        # Should fall back to CPU since MPS is disabled
+        assert service.device == "cpu"
+        mock_transformer.assert_called_once_with(
+            "nomic-ai/nomic-embed-text-v1.5",
+            trust_remote_code=True,
+            device="cpu"
         )
 
     @patch("smart_fork.embedding_service.SentenceTransformer")
@@ -193,6 +260,61 @@ class TestEmbeddingService:
         assert mock_model.encode.call_count == 3
         # Garbage collection should be called between batches (2 times)
         assert mock_gc.call_count >= 2
+
+    @patch("smart_fork.embedding_service.time.sleep")
+    @patch("smart_fork.embedding_service.SentenceTransformer")
+    @patch("psutil.virtual_memory")
+    @patch("gc.collect")
+    def test_embed_texts_throttling(self, mock_gc, mock_memory, mock_transformer, mock_sleep):
+        """Test that throttling sleeps between batches."""
+        # Setup mocks
+        mock_memory.return_value = MagicMock(available=2 * 1024 * 1024 * 1024)
+        mock_model = MagicMock()
+
+        def encode_side_effect(texts, **kwargs):
+            return np.array([[0.1] * 768 for _ in texts])
+
+        mock_model.encode.side_effect = encode_side_effect
+        mock_transformer.return_value = mock_model
+
+        # Use throttle_seconds=0.2 for testing
+        service = EmbeddingService(use_cache=False, throttle_seconds=0.2)
+        # Create 20 texts with batch size of 8 (3 batches)
+        texts = [f"text {i}" for i in range(20)]
+        embeddings = service.embed_texts(texts, batch_size=8)
+
+        assert len(embeddings) == 20
+        # Should have 3 batches (8 + 8 + 4)
+        assert mock_model.encode.call_count == 3
+        # Sleep should be called between batches (2 times, not after the last batch)
+        assert mock_sleep.call_count == 2
+        # Each sleep call should use the configured throttle_seconds
+        mock_sleep.assert_called_with(0.2)
+
+    @patch("smart_fork.embedding_service.time.sleep")
+    @patch("smart_fork.embedding_service.SentenceTransformer")
+    @patch("psutil.virtual_memory")
+    @patch("gc.collect")
+    def test_embed_texts_no_throttling_when_zero(self, mock_gc, mock_memory, mock_transformer, mock_sleep):
+        """Test that no throttling occurs when throttle_seconds=0."""
+        # Setup mocks
+        mock_memory.return_value = MagicMock(available=2 * 1024 * 1024 * 1024)
+        mock_model = MagicMock()
+
+        def encode_side_effect(texts, **kwargs):
+            return np.array([[0.1] * 768 for _ in texts])
+
+        mock_model.encode.side_effect = encode_side_effect
+        mock_transformer.return_value = mock_model
+
+        # Disable throttling
+        service = EmbeddingService(use_cache=False, throttle_seconds=0)
+        texts = [f"text {i}" for i in range(20)]
+        embeddings = service.embed_texts(texts, batch_size=8)
+
+        assert len(embeddings) == 20
+        # Sleep should NOT be called when throttle_seconds=0
+        mock_sleep.assert_not_called()
 
     @patch("smart_fork.embedding_service.SentenceTransformer")
     @patch("psutil.virtual_memory")

@@ -512,7 +512,12 @@ def initialize_services(storage_dir: Optional[str] = None) -> tuple[Optional[Sea
             logger.info("Cache service initialized")
 
         # Initialize services
-        embedding_service = EmbeddingService()
+        embedding_service = EmbeddingService(
+            min_batch_size=config.embedding.min_batch_size,
+            max_batch_size=config.embedding.max_batch_size,
+            throttle_seconds=config.embedding.throttle_seconds,
+            use_mps=config.embedding.use_mps,
+        )
         vector_db_service = VectorDBService(
             persist_directory=str(vector_db_path),
             cache_service=cache_service
@@ -1807,6 +1812,12 @@ def main() -> None:
             if background_indexer is not None and background_indexer.is_running():
                 logger.info("Stopping background indexer...")
                 background_indexer.stop()
+            # Unload embedding model to prevent semaphore leaks
+            if search_service is not None:
+                embedding_service = getattr(search_service, 'embedding_service', None)
+                if embedding_service is not None:
+                    logger.info("Unloading embedding model...")
+                    embedding_service.unload_model()
 
         atexit.register(cleanup)
 

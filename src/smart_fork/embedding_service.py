@@ -2,9 +2,11 @@
 
 import gc
 import logging
+import time
 from typing import List, Union, Optional
 
 import psutil
+import torch
 from sentence_transformers import SentenceTransformer
 
 from .embedding_cache import EmbeddingCache
@@ -30,6 +32,8 @@ class EmbeddingService:
         memory_threshold_mb: int = 500,
         use_cache: bool = True,
         cache_dir: Optional[str] = None,
+        throttle_seconds: float = 0.1,
+        use_mps: bool = True,
     ):
         """Initialize the embedding service.
 
@@ -40,6 +44,8 @@ class EmbeddingService:
             memory_threshold_mb: Memory threshold in MB for adaptive batching
             use_cache: Whether to use embedding cache (default: True)
             cache_dir: Optional cache directory (defaults to ~/.smart-fork/embedding_cache)
+            throttle_seconds: Sleep time between batches to reduce CPU usage (default: 0.1)
+            use_mps: Whether to use MPS (Metal) acceleration on Apple Silicon (default: True)
         """
         self.model_name = model_name
         self.min_batch_size = min_batch_size
@@ -47,6 +53,9 @@ class EmbeddingService:
         self.memory_threshold_mb = memory_threshold_mb
         self.model = None
         self.embedding_dimension = 768  # nomic-embed-text-v1.5 dimension
+        self.throttle_seconds = throttle_seconds
+        self.use_mps = use_mps
+        self.device = "cpu"  # Will be updated when model loads
 
         # Initialize embedding cache
         self.use_cache = use_cache
@@ -56,7 +65,7 @@ class EmbeddingService:
 
         logger.info(
             f"Initializing EmbeddingService with model: {model_name} "
-            f"(cache={'enabled' if use_cache else 'disabled'})"
+            f"(cache={'enabled' if use_cache else 'disabled'}, throttle={throttle_seconds}s)"
         )
 
     def load_model(self) -> None:
@@ -67,12 +76,27 @@ class EmbeddingService:
 
         logger.info(f"Loading model: {self.model_name}")
         try:
+            # Detect best available device
+            if self.use_mps and torch.backends.mps.is_available():
+                self.device = "mps"
+                logger.info("MPS (Metal) acceleration available - using GPU")
+            elif torch.cuda.is_available():
+                self.device = "cuda"
+                logger.info("CUDA acceleration available - using GPU")
+            else:
+                self.device = "cpu"
+                logger.info("No GPU acceleration available - using CPU")
+
             # trust_remote_code is required for nomic models
             self.model = SentenceTransformer(
                 self.model_name,
-                trust_remote_code=True
+                trust_remote_code=True,
+                device=self.device
             )
-            logger.info(f"Model loaded successfully. Embedding dimension: {self.embedding_dimension}")
+            logger.info(
+                f"Model loaded successfully on {self.device}. "
+                f"Embedding dimension: {self.embedding_dimension}"
+            )
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
             raise
@@ -182,13 +206,17 @@ class EmbeddingService:
             # Convert numpy arrays to lists
             new_embeddings.extend([embedding.tolist() for embedding in batch_embeddings])
 
-            # Memory management: garbage collect after each batch
+            # Memory management and throttling after each batch
             if current_batch_num < total_batches:
                 gc.collect()
 
                 # Log memory usage
                 available_mb = self.get_available_memory_mb()
                 logger.debug(f"Available memory after batch {current_batch_num}: {available_mb:.1f} MB")
+
+                # Throttle to prevent 100% CPU usage
+                if self.throttle_seconds > 0:
+                    time.sleep(self.throttle_seconds)
 
         # Store new embeddings in cache
         if self.use_cache and self.cache is not None:

@@ -4,6 +4,7 @@ Tests for SessionSummaryService.
 
 import pytest
 from smart_fork.session_summary_service import SessionSummaryService, SessionSummary
+from smart_fork.session_parser import SessionMessage
 
 
 @pytest.fixture
@@ -61,6 +62,34 @@ class TestSessionSummaryService:
         assert summary.sentence_count <= 3  # max_sentences
         assert summary.source_message_count == 3
         assert len(summary.topics) > 0
+
+    def test_session_message_objects(self, summary_service):
+        """Test summarizing SessionMessage objects (dataclass) instead of dicts."""
+        messages = [
+            SessionMessage(role="user", content="I need to build a REST API using FastAPI for a blog application."),
+            SessionMessage(role="assistant", content="The API should support user authentication and post management."),
+            SessionMessage(role="user", content="I also need to implement search functionality with Elasticsearch.")
+        ]
+        summary = summary_service.generate_summary(messages, "test-session")
+
+        assert summary.session_id == "test-session"
+        assert len(summary.summary) > 0
+        assert summary.sentence_count <= 3  # max_sentences
+        assert summary.source_message_count == 3
+        assert len(summary.topics) > 0
+
+    def test_mixed_dict_and_session_message(self, summary_service):
+        """Test summarizing a mix of dicts and SessionMessage objects."""
+        messages = [
+            {"content": "I need to build a REST API using FastAPI for a blog application."},
+            SessionMessage(role="assistant", content="The API should support user authentication and post management."),
+            {"content": "I also need to implement search functionality with Elasticsearch."}
+        ]
+        summary = summary_service.generate_summary(messages, "test-session")
+
+        assert summary.session_id == "test-session"
+        assert len(summary.summary) > 0
+        assert summary.source_message_count == 3
 
     def test_code_heavy_content_filtered(self, summary_service):
         """Test that code-heavy content is filtered out."""

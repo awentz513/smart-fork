@@ -23,6 +23,8 @@ class EmbeddingConfig:
     batch_size: int = 32
     max_batch_size: int = 128
     min_batch_size: int = 8
+    throttle_seconds: float = 0.1  # Sleep between batches to reduce CPU usage
+    use_mps: bool = True  # Use Metal acceleration on Apple Silicon
 
 
 @dataclass

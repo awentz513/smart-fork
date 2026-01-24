@@ -8,7 +8,8 @@ of session content without requiring LLM API calls.
 
 import re
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
+from smart_fork.session_parser import SessionMessage
 from collections import Counter
 from dataclasses import dataclass
 import math
@@ -65,7 +66,7 @@ class SessionSummaryService:
 
     def generate_summary(
         self,
-        messages: List[Dict],
+        messages: List[Union[Dict, SessionMessage]],
         session_id: str
     ) -> SessionSummary:
         """
@@ -123,12 +124,12 @@ class SessionSummaryService:
             topics=topics
         )
 
-    def _extract_sentences(self, messages: List[Dict]) -> List[str]:
+    def _extract_sentences(self, messages: List[Union[Dict, SessionMessage]]) -> List[str]:
         """
         Extract sentences from messages.
 
         Args:
-            messages: List of message dictionaries
+            messages: List of message dictionaries or SessionMessage objects
 
         Returns:
             List of cleaned sentences
@@ -136,7 +137,11 @@ class SessionSummaryService:
         sentences = []
 
         for message in messages:
-            content = message.get('content', '')
+            # Handle both Dict and SessionMessage types
+            if isinstance(message, SessionMessage):
+                content = message.content
+            else:
+                content = message.get('content', '')
             if not isinstance(content, str):
                 continue
 
